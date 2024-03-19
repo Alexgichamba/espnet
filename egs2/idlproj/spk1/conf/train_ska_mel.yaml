@@ -1,4 +1,4 @@
-# ECAPA-TDNN reproduce recipe configuration.
+# SKA-TDNN reproduce recipe configuration.
 
 # Frontend
 frontend: melspec_torch
