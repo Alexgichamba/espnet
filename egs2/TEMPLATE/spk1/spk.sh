@@ -36,7 +36,7 @@ skip_upload_hf=true   # Skip uploading to hugging face stages.
 eval_valid_set=false  # Run decoding for the validation set
 ngpu=1                # The number of gpus ("0" uses cpu, otherwise use gpu).
 num_nodes=1           # The number of nodes.
-nj=32                 # The number of parallel jobs.
+nj=8                 # The number of parallel jobs.
 gpu_inference=false   # Whether to perform gpu decoding.
 dumpdir=dump          # Directory to dump features.
 expdir=exp            # Directory to save experiments.
@@ -47,7 +47,7 @@ fold_length=120000    # fold_length for speech data during enhancement training.
 local_data_opts= # The options given to local/data.sh
 
 # Speed perturbation related
-speed_perturb_factors="0.9 1.0 1.1" # perturbation factors, e.g. "0.9 1.0 1.1" (separated by space).
+speed_perturb_factors= # perturbation factors, e.g. "0.9 1.0 1.1" (separated by space).
 
 # Feature extraction related
 feats_type=raw      # Feature type (raw, raw_copy, fbank_pitch, or extracted).
