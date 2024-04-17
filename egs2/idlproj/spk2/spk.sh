@@ -1,1 +1,0 @@
-../../TEMPLATE/spk1/spk.sh
