@@ -43,11 +43,11 @@ fi
 if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
     log "stage 1: Data Preparation for pretraining on VoxCeleb1"
 
-    if [ ! -f "${data_dir_prefix}/vox1_dev_wav.zip" ]; then
-        local/download_voxcelebs.sh
-    else
-        log "vox1_dev_wav.zip exists. Skip download."
-    fi
+    # if [ ! -f "${data_dir_prefix}/vox1_dev_wav.zip" ]; then
+    #     local/download_voxcelebs.sh
+    # else
+    #     log "vox1_dev_wav.zip exists. Skip download."
+    # fi
 
     if [ ! -d "${data_dir_prefix}/voxceleb1" ]; then
         mkdir -p "${data_dir_prefix}/voxceleb1/dev"
@@ -72,8 +72,8 @@ if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
         mkdir -p "${trg_dir}/test_vox1"
         mkdir -p "${trg_dir}/dev_vox1"
         
-        python local/voxcelebs_data_prep.py --src "${data_dir_prefix}/voxceleb1/test/wav" --dst "${trg_dir}/test_vox1"
-        python local/voxcelebs_data_prep.py --src "${data_dir_prefix}/voxceleb1/dev/wav" --dst "${trg_dir}/dev_vox1"
+        python local/voxcelebs_data_prep.py --src "${data_dir_prefix}/voxceleb1/test" --dst "${trg_dir}/test_vox1"
+        python local/voxcelebs_data_prep.py --src "${data_dir_prefix}/voxceleb1/dev" --dst "${trg_dir}/dev_vox1"
 
         for f in wav.scp utt2spk spk2utt; do
             sort ${trg_dir}/test_vox1/${f} -o ${trg_dir}/test_vox1/${f}
