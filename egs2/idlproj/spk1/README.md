@@ -10,8 +10,8 @@ Results on Vox1-O, after training on VoxCeleb1-dev
 
 |Model| EER (%) | minDCF| Link |
 |---------|---------|-------|-------|
-| SKA-TDNN | 2.665 | 0.191 | [hf](https://huggingface.co/alexgichamba/idls24_team33_baseline) |
 | Small SKA-TDNN | 2.654 | 0.175 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_ska_small) |
+| SKA-TDNN | 2.665 | 0.191 | [hf](https://huggingface.co/alexgichamba/idls24_team33_baseline) |
 | RawNet3 | 3.181 | 0.218 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_rawnet3) |
 | ECAPA-TDNN | 3.260 | 0.224 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_ecapa) |
 | Branch-ECAPA-TDNN | 3.525 | 0.243 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_branch_ecapa) |
