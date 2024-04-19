@@ -25,4 +25,8 @@ unable to train, because of numerical underflow. Perhaps front end needs pretrai
 Progress: poor results (see branch-ecapa-tdnn)
 
 ### 3. Combining Progressive Channel Fusion (as seen in PCF-ECAPA-TDNN) and Selective Kernel Attention (as seen in SKA-TDNN)
-Progress: underway
+|Training Config|Assigned (Y/N)|EER (%) | minDCF|
+|---------|---------|-------|-------|
+|[conf/train_swap_ska.yaml](conf/train_swap_ska.yaml)||||
+|[conf/train_quadms_ska.yaml](conf/train_quadms_ska.yaml)||||
+|[conf/train_fw_cw_ska_tdnn.yaml](conf/train_fw_cw_ska_tdnn.yaml)||||
