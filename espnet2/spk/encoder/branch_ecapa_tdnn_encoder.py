@@ -27,6 +27,7 @@ class BranchEcapaTdnnEncoder(AbsEncoder):
         model_scale: scale value of the Res2Net architecture.
         ndim: dimensionality of the hidden representation.
         output_size: output embedding dimension.
+        num_heads: number of attention heads.
     """
 
     @typechecked
@@ -37,6 +38,9 @@ class BranchEcapaTdnnEncoder(AbsEncoder):
         model_scale: int = 8,
         ndim: int = 1024,
         output_size: int = 1536,
+        num_heads: int = 2,
+        dropout_rate: float = 0.1,
+        merge_method: str = "concat",
         **kwargs,
     ):
         super().__init__()
@@ -50,9 +54,15 @@ class BranchEcapaTdnnEncoder(AbsEncoder):
         self.relu = nn.ReLU()
         self.bn = nn.BatchNorm1d(ndim)
 
-        self.layer1 = block(ndim, ndim, kernel_size=3, dilation=2, scale=model_scale)
-        self.layer2 = block(ndim, ndim, kernel_size=3, dilation=3, scale=model_scale)
-        self.layer3 = block(ndim, ndim, kernel_size=3, dilation=4, scale=model_scale)
+        self.layer1 = block(ndim, ndim, kernel_size=3, dilation=2,
+                             scale=model_scale, num_heads=num_heads,
+                               dropout_rate=dropout_rate, merge_method=merge_method)
+        self.layer2 = block(ndim, ndim, kernel_size=3, dilation=3,
+                             scale=model_scale, num_heads=num_heads
+                             , dropout_rate=dropout_rate, merge_method=merge_method)
+        self.layer3 = block(ndim, ndim, kernel_size=3, dilation=4,
+                             scale=model_scale, num_heads=num_heads,
+                               dropout_rate=dropout_rate, merge_method=merge_method)
         self.layer4 = nn.Conv1d(3 * ndim, output_size, kernel_size=1)
 
         self.mp3 = nn.MaxPool1d(3)

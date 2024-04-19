@@ -96,14 +96,16 @@ class AttentionBranch(nn.Module):
         self.layer_norm = nn.LayerNorm(channels)
         self.mha = nn.MultiheadAttention(embed_dim=channels,
                                          num_heads=num_heads,
-                                         dropout=dropout_rate)
+                                         dropout=dropout_rate,
+                                         batch_first=True)
         self.dropout = nn.Dropout(dropout_rate)
+
     
-    def forward(self, x):
-        x = self.layer_norm(x)
-        x = x.permute(1, 0, 2)
+    def forward(self, x): # x: (batch, channels, seq_len)
+        x = x.permute(0, 2, 1) # (batch, seq_len, channels)  
+        x = self.layer_norm(x)      
         x, _ = self.mha(query=x, key=x, value=x)
-        x = x.permute(1, 0, 2)
+        x = x.permute(0, 2, 1)
         x = self.dropout(x)
         return x
 
@@ -119,29 +121,31 @@ class BranchEcapaBlock(nn.Module):
         kernel_size: int = 3,
         dilation: int = 1,
         scale: int = 8,
+        num_heads: int = 2,
+        dropout_rate: float = 0.1,
         merge_method: str = "concat",
         **kwargs,
     ):
         super().__init__()
-        self.ecapa_branch = EcapaBranch(inplanes,
-                                         planes,
-                                           kernel_size,
-                                             dilation,
-                                               scale)
-        self.attn_branch = AttentionBranch(planes, num_heads=4)
+        self.ecapa_branch = EcapaBranch(inplanes=inplanes,
+                                         planes=planes,
+                                           kernel_size=kernel_size,
+                                             dilation=dilation,
+                                               scale=scale)
+        self.attn_branch = AttentionBranch(channels=planes,
+                                            num_heads=num_heads,
+                                              dropout_rate=dropout_rate)
         self.merge_method = merge_method
         self.linear_cat = nn.Linear(planes * 2, planes)
     
     def forward(self, x):
         ecapa_out = self.ecapa_branch(x)
-        attn_out = self.parallel_attn_branch(x)
-
+        attn_out = self.attn_branch(x)
         cat = torch.cat((ecapa_out, attn_out), dim=1)
-
         if self.merge_method == "concat":
-            x = self.linear_cat(cat)
+            x = self.linear_cat(cat.permute(0, 2, 1))
         else:
             raise NotImplementedError(f"merge method {self.merge_method} not implemented")
         
-        return x
+        return x.permute(0, 2, 1)
 

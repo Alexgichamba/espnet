@@ -8,6 +8,7 @@ from typeguard import typechecked
 from espnet2.asr.encoder.abs_encoder import AbsEncoder
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
 from espnet2.asr.frontend.asteroid_frontend import AsteroidFrontend
+from espnet2.asr.frontend.analyticfree import AnalyticFreeFrontend
 from espnet2.asr.frontend.default import DefaultFrontend
 from espnet2.asr.frontend.fused import FusedFrontends
 from espnet2.asr.frontend.melspec_torch import MelSpectrogramTorch
@@ -57,6 +58,7 @@ frontend_choices = ClassChoices(
     name="frontend",
     classes=dict(
         asteroid_frontend=AsteroidFrontend,
+        analyticfree=AnalyticFreeFrontend,
         default=DefaultFrontend,
         fused=FusedFrontends,
         melspec_torch=MelSpectrogramTorch,
