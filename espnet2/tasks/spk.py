@@ -28,6 +28,7 @@ from espnet2.spk.encoder.xvector_encoder import XvectorEncoder
 from espnet2.spk.encoder.branch_ecapa_tdnn_encoder import BranchEcapaTdnnEncoder
 from espnet2.spk.encoder.quadms_ska_tdnn_encoder import QuadMsSkaTdnnEncoder
 from espnet2.spk.encoder.swap_ska_tdnn_encoder import SwapSkaTdnnEncoder
+from espnet2.spk.encoder.fw_cs_ska_tdnn_encoder import FwCwSkaTdnnEncoder
 from espnet2.spk.espnet_model import ESPnetSpeakerModel
 from espnet2.spk.loss.aamsoftmax import AAMSoftmax
 from espnet2.spk.loss.aamsoftmax_subcenter_intertopk import (
@@ -103,6 +104,7 @@ encoder_choices = ClassChoices(
         branch_ecapa_tdnn=BranchEcapaTdnnEncoder,
         quadms_ska_tdnn=QuadMsSkaTdnnEncoder,
         swap_ska_tdnn=SwapSkaTdnnEncoder,
+        fw_cw_ska_tdnn=FwCwSkaTdnnEncoder
     ),
     type_check=AbsEncoder,
     default="rawnet3",
