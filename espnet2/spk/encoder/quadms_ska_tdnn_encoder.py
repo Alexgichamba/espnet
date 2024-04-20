@@ -435,8 +435,8 @@ class QuadMsSkaTdnnEncoder(AbsEncoder):
         x1 = self.layer1(x)
         x2 = self.layer2(x + x1)
         x3 = self.layer3(x + x1 + x2)
-        x4 = self.layer3(x + x1 + x2 + x3)
-        x = self.layer4(torch.cat((x1, x2, x3, x4), dim=1))
+        x4 = self.layer4(x + x1 + x2 + x3)
+        x = self.layer5(torch.cat((x1, x2, x3, x4), dim=1))
         x = self.relu(x)
 
         return x
