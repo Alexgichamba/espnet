@@ -28,5 +28,6 @@ Progress: poor results (see branch-ecapa-tdnn)
 |Training Config|Assigned to|EER (%) | minDCF|
 |---------|---------|-------|-------|
 |[conf/train_swap_ska.yaml](conf/train_swap_ska.yaml)||||
-|[conf/train_quadms_ska.yaml](conf/train_quadms_ska.yaml)||||
+|[conf/train_quadms_ska.yaml](conf/train_quadms_ska.yaml)|Brian|||
 |[conf/train_fw_cw_ska_tdnn.yaml](conf/train_fw_cw_ska_tdnn.yaml)||||
+|[conf/train_three_kernel_ska.yaml](conf/train_three_kernel_ska.yaml)||||
