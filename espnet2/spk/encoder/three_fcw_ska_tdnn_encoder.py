@@ -104,7 +104,7 @@ class Bottle2neck(nn.Module):
         return out
 
 
-class CwBlock(nn.Module):
+class ResBlock(nn.Module):
     def __init__(
         self,
         inplanes: int,
@@ -114,54 +114,7 @@ class CwBlock(nn.Module):
         skfwse_freq: int = 40,
         skcwse_channel: int = 128,
     ):
-        super(CwBlock, self).__init__()
-        self.conv1 = nn.Conv2d(
-            inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False
-        )
-        self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.skfwse = fwSKAttention(
-            freq=skfwse_freq,
-            channel=skcwse_channel,
-            kernels=[5, 7],
-            receptive=[5, 7],
-            dilations=[1, 1],
-            reduction=reduction,
-            groups=1,
-        )
-        self.skcwse = cwSKAttention(
-            freq=skfwse_freq,
-            channel=skcwse_channel,
-            kernels=[5, 7],
-            receptive=[5, 7],
-            dilations=[1, 1],
-            reduction=reduction,
-            groups=1,
-        )
-        self.stride = stride
-
-    def forward(self, x):
-        residual = x
-        out = self.conv1(x)
-        out = self.relu(out)
-        out = self.bn1(out)
-        out = self.skcwse(out)
-        out = self.skcwse(out)
-        out += residual
-        out = self.relu(out)
-        return out
-
-class FwBlock(nn.Module):
-    def __init__(
-        self,
-        inplanes: int,
-        planes: int,
-        stride: int = 1,
-        reduction: int = 8,
-        skfwse_freq: int = 40,
-        skcwse_channel: int = 128,
-    ):
-        super(FwBlock, self).__init__()
+        super(ResBlock, self).__init__()
         self.conv1 = nn.Conv2d(
             inplanes, planes, kernel_size=3, stride=stride, padding=1, bias=False
         )
@@ -193,10 +146,11 @@ class FwBlock(nn.Module):
         out = self.relu(out)
         out = self.bn1(out)
         out = self.skfwse(out)
-        out = self.skfwse(out)
+        out = self.skcwse(out)
         out += residual
         out = self.relu(out)
         return out
+
 
 class SKAttentionModule(nn.Module):
     def __init__(self, channel=128, reduction=4, L=16, num_kernels=2):
@@ -384,7 +338,7 @@ class cwSKAttention(nn.Module):
         return V
 
 
-class FwCwSkaTdnnEncoder(AbsEncoder):
+class ThreeFcwSkaTdnnEncoder(AbsEncoder):
     """SKA-TDNN encoder. Extracts frame-level SKA-TDNN embeddings from features.
 
     Paper: S. Mun, J. Jung et al., "Frequency and Multi-Scale Selective Kernel
@@ -405,8 +359,7 @@ class FwCwSkaTdnnEncoder(AbsEncoder):
         block: str = "Bottle2neck",
         ndim: int = 1024,
         model_scale: int = 8,
-        # ska_block1: str = "FwBlock",
-        # ska_block2: str = "CwBlock",
+        skablock: str = "ResBlock",
         ska_dim: int = 128,
         output_size: int = 1536,
         **kwargs,
@@ -418,30 +371,30 @@ class FwCwSkaTdnnEncoder(AbsEncoder):
         else:
             raise ValueError(f"unsupported block, got: {block}")
 
-        # if ska_block1 == "FwBlock":
-        #     ska_block1 = FwBlock
-        # else:
-        #     raise ValueError(f"unsupported block, got: {ska_block1}")
-        
-        # if ska_block2 == "CwBlock":
-        #     ska_block2 = CwBlock
-        # else:
-        #     raise ValueError(f"unsupported block, got: {ska_block2}")
-        ska_block1 = FwBlock
-        ska_block2 = CwBlock
+        if skablock == "ResBlock":
+            ska_block = ResBlock
+        else:
+            raise ValueError(f"unsupported block, got: {ska_block}")
 
         self.frt_conv1 = nn.Conv2d(
             1, ska_dim, kernel_size=(3, 3), stride=(2, 1), padding=1
         )
         self.frt_bn1 = nn.BatchNorm2d(ska_dim)
-        self.frt_block1 = ska_block1(
+        self.frt_block1 = ska_block(
             ska_dim,
             ska_dim,
             stride=(1, 1),
             skfwse_freq=input_size // 2,
             skcwse_channel=ska_dim,
         )
-        self.frt_block2 = ska_block2(
+        self.frt_block2 = ska_block(
+            ska_dim,
+            ska_dim,
+            stride=(1, 1),
+            skfwse_freq=input_size // 2,
+            skcwse_channel=ska_dim,
+        )
+        self.frt_block3 = ska_block(
             ska_dim,
             ska_dim,
             stride=(1, 1),
@@ -476,6 +429,7 @@ class FwCwSkaTdnnEncoder(AbsEncoder):
         x = self.frt_bn1(x)
         x = self.frt_block1(x)
         x = self.frt_block2(x)
+        x = self.frt_block3(x)
         x = self.frt_conv2(x)
         x = self.relu(x)
         x = self.frt_bn2(x)
