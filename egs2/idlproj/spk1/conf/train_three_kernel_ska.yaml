@@ -74,6 +74,7 @@ best_model_criterion:
 - - valid
   - eer
   - min
+num_iters_per_epoch: 2239
 
 # Optimizer
 optim: adam
