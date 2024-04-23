@@ -10,14 +10,14 @@ Results on Vox1-O, after training on VoxCeleb1-dev
 
 |Model| Params |EER (%) | minDCF| Link |
 |---------|---------|---------|-------|-------|
-| (Ours) 4 Kernel SKA-TDNN | 25.25 M |2.456	 | 0.178 |[hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_4k_ska)|
-| (Ours) 3 Kernel SKA-TDNN | 19.94 M |2.601 | 0.184 |[hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_3k_ska)|
-| (Ours) Small SKA-TDNN | 19.34 M |2.654 | 0.175 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_ska_small) |
-| (Ours) 4msSKA-TDNN | 21.14 M |2.659 | 0.178 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_4ms_ska) |
-| (Baseline) SKA-TDNN | 36.51 M |2.665 | 0.191 | [hf](https://huggingface.co/alexgichamba/idls24_team33_baseline) |
-| RawNet3 | 16.78 M |3.181 | 0.218 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_rawnet3) |
-| ECAPA-TDNN | 15.36 M |3.260 | 0.224 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_ecapa) |
-| Branch-ECAPA-TDNN | 34.25 M |s3.525 | 0.243 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_branch_ecapa) |
+| (Ours) 4 Kernel SKA-TDNN | 25.25 M | 2.318 | 0.16167 |[hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_4k_ska)|
+| (Ours) 4msSKA-TDNN | 21.14 M |2.340 | 0.15587 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_4ms_ska) |
+| (Ours) Small SKA-TDNN | 19.34 M |2.351 | 0.16071 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_ska_small) |
+| (Ours) cwfw SKA-TDNN | 19.34 M | 2.371 | 0.15496 ||
+| (Ours) 3 Kernel SKA-TDNN | 19.94 M |2.383 | 0.16050 |[hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_3k_ska)|
+| (Baseline) SKA-TDNN | 36.51 M |2.383 | 0.16746 | [hf](https://huggingface.co/alexgichamba/idls24_team33_baseline) |
+| RawNet3 | 16.78 M |3.105 | 0.21155 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_rawnet3) |
+| ECAPA-TDNN | 15.36 M |3.106 | 0.21665 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_ecapa) |
 
 ## Hypothesis
 ### 1. Fully learnable front end for raw waveform spk embedding
