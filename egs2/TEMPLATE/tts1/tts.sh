@@ -35,8 +35,8 @@ skip_upload=true     # Skip packing and uploading stages.
 skip_upload_hf=true # Skip uploading to hugging face stages.
 ngpu=1               # The number of gpus ("0" uses cpu, otherwise use gpu).
 num_nodes=1          # The number of nodes.
-nj=32                # The number of parallel jobs.
-inference_nj=32      # The number of parallel jobs in decoding.
+nj=8                # The number of parallel jobs.
+inference_nj=8      # The number of parallel jobs in decoding.
 gpu_inference=false  # Whether to perform gpu decoding.
 dumpdir=dump         # Directory to dump features.
 expdir=exp           # Directory to save experiments.
@@ -47,7 +47,7 @@ local_data_opts="" # Options to be passed to local/data.sh.
 
 # Feature extraction related
 feats_type=raw             # Input feature type.
-audio_format=flac          # Audio format: wav, flac, wav.ark, flac.ark  (only in feats_type=raw).
+audio_format=wav          # Audio format: wav, flac, wav.ark, flac.ark  (only in feats_type=raw).
 min_wav_duration=0.1       # Minimum duration in second.
 max_wav_duration=20        # Maximum duration in second.
 use_sid=false              # Whether to use speaker id as the inputs (Need utt2spk in data directory).
@@ -66,11 +66,11 @@ f0min=80  # Maximum f0 for pitch extraction.
 f0max=400 # Minimum f0 for pitch extraction.
 
 # Speaker embedding related
-use_spk_embed=false      # Whether to use speaker embedding.
+use_spk_embed=true      # Whether to use speaker embedding.
 spk_embed_tag=espnet_spk # The additional tag of speaker embedding folder, use "xvector" for compatibility.
-spk_embed_gpu_inference=false # Whether to use gpu to inference speaker embedding.
+spk_embed_gpu_inference=true # Whether to use gpu to inference speaker embedding.
 spk_embed_tool=espnet    # Toolkit for extracting x-vector (speechbrain, rawnet, espnet, kaldi).
-spk_embed_model=espnet/voxcelebs12_rawnet3  # For only espnet, speechbrain, or rawnet.
+spk_embed_model=ska.pth  # For only espnet, speechbrain, or rawnet.
 
 # Vocabulary related
 oov="<unk>"         # Out of vocabrary symbol.
@@ -87,14 +87,14 @@ tts_stats_dir=""   # Specify the directory path for statistics. If empty, automa
 num_splits=1       # Number of splitting for tts corpus.
 teacher_dumpdir="" # Directory of teacher outputs (needed if tts=fastspeech).
 write_collected_feats=false # Whether to dump features in stats collection.
-tts_task=tts                # TTS task (tts or gan_tts).
+tts_task=gan_tts                # TTS task (tts or gan_tts).
 
 # Decoding related
 inference_config="" # Config for decoding.
 inference_args=""   # Arguments for decoding (e.g., "--threshold 0.75").
                     # Note that it will overwrite args in inference config.
 inference_tag=""    # Suffix for decoding directory.
-inference_model=train.loss.ave.pth # Model path for decoding.
+inference_model="../../460epoch.pth" # Model path for decoding.
                                    # e.g.
                                    # inference_model=train.loss.best.pth
                                    # inference_model=3epoch.pth
