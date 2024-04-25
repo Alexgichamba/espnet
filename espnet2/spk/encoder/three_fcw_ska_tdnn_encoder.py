@@ -163,6 +163,7 @@ class SKAttentionModule(nn.Module):
         for i in range(num_kernels):
             self.fcs += [nn.Linear(self.D, channel)]
         self.softmax = nn.Softmax(dim=0)
+        self.attention_weights = None
 
     def forward(self, x, convs):
         """Forward function.
@@ -189,6 +190,7 @@ class SKAttentionModule(nn.Module):
         attention_weights = torch.stack(weights, 0)
         attention_weights = self.softmax(attention_weights)
         V = (attention_weights * feats).sum(0)
+        self.attention_weights = attention_weights
         return V
 
 
@@ -236,6 +238,7 @@ class fwSKAttention(nn.Module):
         for i in range(len(kernels)):
             self.fcs += [nn.Linear(self.D, freq)]
         self.softmax = nn.Softmax(dim=0)
+        self.attention_weights = None
 
     def forward(self, x):
         """Forward function.
@@ -262,6 +265,7 @@ class fwSKAttention(nn.Module):
         attention_weights = torch.stack(weights, 0)
         attention_weights = self.softmax(attention_weights)
         V = (attention_weights * feats).sum(0)
+        self.attention_weights = attention_weights
         return V
 
 
@@ -309,6 +313,7 @@ class cwSKAttention(nn.Module):
         for i in range(len(kernels)):
             self.fcs += [nn.Linear(self.D, channel)]
         self.softmax = nn.Softmax(dim=0)
+        self.attention_weights = None
 
     def forward(self, x):
         """Forward Function.
@@ -335,6 +340,7 @@ class cwSKAttention(nn.Module):
         attention_weights = torch.stack(weights, 0)
         attention_weights = self.softmax(attention_weights)
         V = (attention_weights * feats).sum(0)
+        self.attention_weights = attention_weights
         return V
 
 
