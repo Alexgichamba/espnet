@@ -77,6 +77,10 @@ class Speech2Embedding:
         output = self.spk_model(**batch)
 
         return output
+    
+    def get_model(self):
+        """Return the initialized speaker model"""
+        return self.spk_model
 
     @staticmethod
     def from_pretrained(
