@@ -4,12 +4,13 @@
 
 Baseline Architecture: [SKA-TDNN](https://arxiv.org/abs/2204.01005)  
 
-Hyperparams and training configs at [conf/train_ska_mel.yaml](conf/train_ska_mel.yaml)
+## Speaker Verification Results
 
 Results on Vox1-O, after training on VoxCeleb1-dev
 
 |Model| Params |EER (%) | minDCF| Link |
 |---------|---------|---------|-------|-------|
+| (Ours) 3 fcw SKA-TDNN | 21.92 M | 2.297 | 0.16635 |[hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_3fcwska)|
 | (Ours) 4 Kernel SKA-TDNN | 25.25 M | 2.318 | 0.16167 |[hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_4k_ska)|
 | (Ours) 4msSKA-TDNN | 21.14 M |2.340 | 0.15587 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_4ms_ska) |
 | (Ours) Small SKA-TDNN | 19.34 M |2.351 | 0.16071 | [hf](https://huggingface.co/alexgichamba/idls24_team33_vox1_ska_small) |
