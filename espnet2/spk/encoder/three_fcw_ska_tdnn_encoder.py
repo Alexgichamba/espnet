@@ -6,8 +6,6 @@ from collections import OrderedDict
 import torch
 import torch.nn as nn
 from typeguard import typechecked
-import torch.nn.functional.softmax as sftmax
-
 from espnet2.asr.encoder.abs_encoder import AbsEncoder
 
 
@@ -191,7 +189,7 @@ class SKAttentionModule(nn.Module):
         attention_weights = torch.stack(weights, 0)
         attention_weights = self.softmax(attention_weights)
         V = (attention_weights * feats).sum(0)
-        self.attention_weights = sftmax(attention_weights.squeeze(),dim=1)
+        self.attention_weights = torch.nn.functional.softmax(attention_weights.squeeze(),dim=1)
         return V
 
 
@@ -266,7 +264,7 @@ class fwSKAttention(nn.Module):
         attention_weights = torch.stack(weights, 0)
         attention_weights = self.softmax(attention_weights)
         V = (attention_weights * feats).sum(0)
-        self.attention_weights = sftmax(attention_weights.squeeze(),dim=1)
+        self.attention_weights = torch.nn.functional.softmax(attention_weights.squeeze(),dim=1)
         return V
 
 
@@ -341,7 +339,7 @@ class cwSKAttention(nn.Module):
         attention_weights = torch.stack(weights, 0)
         attention_weights = self.softmax(attention_weights)
         V = (attention_weights * feats).sum(0)
-        self.attention_weights = sftmax(attention_weights.squeeze(),dim=1)
+        self.attention_weights = torch.nn.functional.softmax(attention_weights.squeeze(),dim=1)
         return V
 
 
