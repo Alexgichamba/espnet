@@ -31,51 +31,101 @@ else
     data_dir_prefix=${VOXCELEB}
 fi
 
+# Define directories for IDMT_Traffic
+AUDIO_DIR_duo="${data_dir_prefix}/IDMT_Traffic/audio"
+AUDIO_DIR_mono="${data_dir_prefix}/IDMT_Traffic/audio_mono"
+ANNOTATION_DIR="${data_dir_prefix}/IDMT_Traffic/annotation"
+TRAIN_DIR="${data_dir_prefix}/IDMT_Traffic/train"
+TEST_DIR="${data_dir_prefix}/IDMT_Traffic/test"
+
 if [ ${stage} -le 1 ] && [ ${stop_stage} -ge 1 ]; then
-    log "stage 1: Make kaldi style files"
+    log "stage 1: Make train and test dirs"
 
-    mkdir -p ${trg_dir}/train
-    mkdir -p ${trg_dir}/test
+    # make all audio single channel
+    # if audio_mono dir does not exist, create it.
+    if [ ! -d "${AUDIO_DIR_mono}" ]; then
+        log "Creating audio_mono dir"
+        mkdir -p ${AUDIO_DIR_mono}
+        # convert all audio files to mono
+        python3 local/make_single_channel.py --input_dir ${AUDIO_DIR_duo}  --output_dir ${AUDIO_DIR_mono}
+    else
+        log "Audio_mono dir exists. Skip creating."
+    fi
 
-    # convert dual channel to mono
-    python3 local/make_single_channel.py \
-        --input_dir ${data_dir_prefix}/classes \
-        --output_dir ${data_dir_prefix}/classes_mono
+    # if train dir does not exist
+    if [ ! -d "${TRAIN_DIR}" ]; then
+        log "Creating train dir"
+        mkdir -p ${TRAIN_DIR}
+        # Create symbolic links for the audio files listed in the annotation files
+        while IFS= read -r line; do
+            ln -s "${AUDIO_DIR_mono}/${line}" "${TRAIN_DIR}/${line}"
+        done < "${ANNOTATION_DIR}/eusipco_2021_train.txt"
+    else
+        log "Train dir exists. Skip creating."
+    fi
 
-    python3 local/data_prep.py \
-        --input_dir ${data_dir_prefix}/classes_mono/train \
-        --trg_dir ${trg_dir}/train
+    # if test dir does not exist
+    if [ ! -d "${TEST_DIR}" ]; then
+        log "Creating test dir"
+        mkdir -p ${TEST_DIR}
+        # Create symbolic links for the audio files listed in the annotation files
+        while IFS= read -r line; do
+            ln -s "${AUDIO_DIR_mono}/${line}" "${TEST_DIR}/${line}"
+        done < "${ANNOTATION_DIR}/eusipco_2021_test.txt"
+    else
+        log "Test dir exists. Skip creating."
+    fi
 
-    for f in wav.scp utt2spk ; do
-        sort ${trg_dir}/train/${f} -o ${trg_dir}/train/${f}
-    done
-    utils/utt2spk_to_spk2utt.pl ${trg_dir}/train/utt2spk > "${trg_dir}/train/spk2utt"
-
-    python3 local/data_prep.py \
-        --input_dir ${data_dir_prefix}/classes_mono/test \
-        --trg_dir ${trg_dir}/test
-
-    for f in wav.scp utt2spk ; do
-        sort ${trg_dir}/test/${f} -o ${trg_dir}/test/${f}
-    done
-    utils/utt2spk_to_spk2utt.pl ${trg_dir}/test/utt2spk > "${trg_dir}/test/spk2utt"
-
-    # make trials
-    python3 local/make_trials.py \
-        --base_directory ${data_dir_prefix}/classes_mono/test \
-        --output_file ${data_dir_prefix}/trials.txt
-
-    # convert trials
-    python3 local/convert_trial.py \
-        --trial_file ${data_dir_prefix}/trials.txt \
-        --scp ${trg_dir}/test/wav.scp \
-        --out_dir ${trg_dir}/test
+    # print the number of files in train and test dirs
+    log "Number of files in train dir: $(ls -1 ${TRAIN_DIR} | wc -l)"
+    log "Number of files in test dir: $(ls -1 ${TEST_DIR} | wc -l)"
 
     log "Stage 1, DONE."
 fi
 
 if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
-    log "Stage 2: Download Musan and RIR_NOISES for augmentation."
+    log "Stage 2: Make kaldi style data directories."
+
+    # if trg_dir does not exist, create it.
+    mkdir -p ${trg_dir}
+
+    # train
+    python3 local/idmt_data_prep.py --audio_dir ${TRAIN_DIR} --trg_dir "${trg_dir}/train" --metadata_file ${ANNOTATION_DIR}/eusipco_2021_train.txt
+    # sort files
+    for f in utt2spk wav.scp; do
+        sort ${trg_dir}/train/${f} -o ${trg_dir}/train/${f}
+    done
+    # make spk2utt from utt2spk
+    utils/utt2spk_to_spk2utt.pl ${trg_dir}/train/utt2spk > ${trg_dir}/train/spk2utt
+    # validate data dir
+    utils/validate_data_dir.sh --no-feats --no-text ${trg_dir}/train
+
+    # test
+    python3 local/idmt_data_prep.py --audio_dir ${TEST_DIR} --trg_dir "${trg_dir}/test" --metadata_file ${ANNOTATION_DIR}/eusipco_2021_test.txt
+    # sort files
+    for f in utt2spk wav.scp; do
+        sort ${trg_dir}/test/${f} -o ${trg_dir}/test/${f}
+    done
+    # make spk2utt from utt2spk
+    utils/utt2spk_to_spk2utt.pl ${trg_dir}/test/utt2spk > ${trg_dir}/test/spk2utt
+    # validate data dir
+    utils/validate_data_dir.sh --no-feats --no-text ${trg_dir}/test
+
+    # make trials
+    if [ ! -f "${trg_dir}/test/trials.txt" ]; then
+        python3 local/make_trials.py --utt2spk_file ${trg_dir}/test/utt2spk --output_file ${trg_dir}/test/trials.txt --num_trials 1000
+    else
+        log "Trials file exists. Skip creating."
+    fi
+
+    # make trial.scp,trial2.scp, and trial_label
+    python3 local/convert_trial.py --trial_file ${trg_dir}/test/trials.txt --scp ${trg_dir}/test/wav.scp --out_dir ${trg_dir}/test
+
+    log "Stage 2, DONE."
+fi
+
+if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
+    log "Stage 3: Download Musan and RIR_NOISES for augmentation."
 
     # if trg_dir does not exist, create it.
     mkdir -p ${trg_dir}
@@ -115,7 +165,7 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ]; then
     # Similar setup to Kaldi and VoxCeleb_trainer.
     find ${data_dir_prefix}/RIRS_NOISES/simulated_rirs/mediumroom -iname "*.wav" > ${trg_dir}/rirs.scp
     find ${data_dir_prefix}/RIRS_NOISES/simulated_rirs/smallroom -iname "*.wav" >> ${trg_dir}/rirs.scp
-    log "Stage 2, DONE."
+    log "Stage 3, DONE."
 fi
 
 log "Successfully finished. [elapsed=${SECONDS}s]"

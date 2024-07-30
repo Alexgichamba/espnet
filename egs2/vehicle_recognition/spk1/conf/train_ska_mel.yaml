@@ -15,7 +15,7 @@ frontend_conf:
 encoder: ska_tdnn
 encoder_conf:
   model_scale: 8
-  ndim: 1024
+  ndim: 512
   ska_dim: 128
   output_size: 1536
 
@@ -33,25 +33,22 @@ preprocessor_conf:
   target_duration: 3.0  # seconds
   sample_rate: 16000
   num_eval: 5
-  noise_apply_prob: 0.0
-  # noise_info:
-  # - [1.0, 'dump/raw/musan_speech.scp', [4, 7], [13, 20]]
-  # - [1.0, 'dump/raw/musan_noise.scp', [1, 1], [0, 15]]
-  # - [1.0, 'dump/raw/musan_music.scp', [1, 1], [5, 15]]
-  rir_apply_prob: 0.0
+  noise_apply_prob: 0.5
+  noise_info:
+  - [0.2, 'dump/raw/musan_speech.scp', [4, 7], [13, 20]]
+  - [1.0, 'dump/raw/musan_noise.scp', [1, 1], [0, 15]]
+  - [0.2, 'dump/raw/musan_music.scp', [1, 1], [5, 15]]
+  rir_apply_prob: 0.5
 
 # Model conf
 model_conf:
   extract_feats_in_collect_stats: false
 
 # Loss
-loss: aamsoftmax_sc_topk
+loss: aamsoftmax
 loss_conf:
   margin: 0.3
   scale: 30
-  K: 3
-  mp: 0.06
-  k_top: 5
 
 # Training related
 max_epoch: 40
@@ -64,16 +61,16 @@ iterator_type: category
 valid_iterator_type: sequence
 shuffle_within_batch: False
 log_interval: 10
-batch_size: 4
-valid_batch_size: 4
+batch_size: 12
+valid_batch_size: 32
 use_amp: True
-keep_nbest_models: 3
+keep_nbest_models: 5
 grad_clip: 9999
 best_model_criterion:
 - - valid
   - eer
   - min
-num_iters_per_epoch: 41
+num_iters_per_epoch: 56
 
 # Optimizer
 optim: adam
@@ -85,9 +82,9 @@ optim_conf:
 # Scheduler
 scheduler: CosineAnnealingWarmupRestarts
 scheduler_conf:
-  first_cycle_steps: 410 # equal to 10 epochs
+  first_cycle_steps: 560 # equal to 10 epochs
   cycle_mult: 1.0
-  max_lr: 0.001
-  min_lr: 0.000005
+  max_lr: 1.0E-4
+  min_lr: 5.0E-7
   warmup_steps: 10
   gamma: 0.75

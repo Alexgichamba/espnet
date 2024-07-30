@@ -18,7 +18,8 @@ def main(args):
         os.path.join(args.out_dir, "trial2.scp"), "w"
     ) as f_trial2, open(os.path.join(args.out_dir, "trial_label"), "w") as f_label:
         for tr in lines_trial_org:
-            label, utt1, utt2 = tr.strip().split(" ")
+            trial_key, label = tr.strip().split(" ")
+            utt1, utt2 = trial_key.split("*")
             # remove the parent directory from the path of utterances
             utt1 = utt1.split("/")[-1]
             utt2 = utt2.split("/")[-1]

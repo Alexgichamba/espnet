@@ -1,55 +1,64 @@
-import os
-import itertools
+import random
 import argparse
 
-# Function to get all files in the directories
-def get_files_and_labels(base_directory, directories):
-    files_and_labels = []
-    for label, directory in directories.items():
-        full_directory = os.path.join(base_directory, directory)
-        files = os.listdir(full_directory)
-        for file in files:
-            if file.endswith(".wav"):
-                relative_path = os.path.join(directory, file)
-                files_and_labels.append((relative_path, label))
-    return files_and_labels
+def generate_trials(utt2spk_file: str, output_file: str, num_trials: int = 1000):
+    # Read the utt2spk file
+    utt2spk = {}
+    with open(utt2spk_file, 'r') as file:
+        for line in file:
+            utt, spk = line.strip().split()
+            utt2spk[utt] = spk
 
-def main(base_directory, output_file):
-    # Directories for each class relative to the base directory
-    directories = {
-        "none": "none/",
-        "car": "car/",
-        "bus": "bus/",
-        "truck": "truck/",
-        "motorbike": "motorbike/",
-        "person": "person/"
-    }
+    # Separate utterances by speaker
+    speakers = {}
+    for utt, spk in utt2spk.items():
+        if spk not in speakers:
+            speakers[spk] = []
+        speakers[spk].append(utt)
+    
+    # Prepare for trials
+    genuine_trials = []
+    imposter_trials = []
 
-    # Get all files and labels
-    files_and_labels = get_files_and_labels(base_directory, directories)
+    # Generate genuine trials
+    for utts in speakers.values():
+        if len(utts) > 1:
+            for i in range(len(utts)):
+                for j in range(i + 1, len(utts)):
+                    genuine_trials.append((utts[i], utts[j], 1))
+                    if len(genuine_trials) >= num_trials // 2:
+                        break
+                if len(genuine_trials) >= num_trials // 2:
+                    break
+        if len(genuine_trials) >= num_trials // 2:
+            break
 
-    # Create pairs
-    pairs = list(itertools.combinations(files_and_labels, 2))
+    # Generate imposter trials
+    all_utterances = list(utt2spk.keys())
+    while len(imposter_trials) < num_trials // 2:
+        utt1 = random.choice(all_utterances)
+        spk1 = utt2spk[utt1]
+        spk2 = random.choice([spk for spk in speakers.keys() if spk != spk1])
+        utt2 = random.choice(speakers[spk2])
+        imposter_trials.append((utt1, utt2, 0))
 
-    # Create accept/reject labels
-    trials = []
-    for (file1, label1), (file2, label2) in pairs:
-        if label1 == label2:
-            trials.append(f"1 {file1} {file2}")
-        else:
-            trials.append(f"0 {file1} {file2}")
+    # Combine and shuffle trials
+    trials = genuine_trials + imposter_trials
+    random.shuffle(trials)
+    
+    # Write trials to output file
+    with open(output_file, 'w') as file:
+        for utt1, utt2, label in trials:
+            file.write(f"{utt1}*{utt2} {label}\n")
+    
+    print(f"Generated {num_trials} trials with {num_trials // 2} genuine and {num_trials // 2} imposter trials. Saved to {output_file}")
 
-    # Save to file
-    with open(output_file, "w") as f:
-        for trial in trials:
-            f.write(trial + "\n")
-
-    print(f"Binary trials file created at {output_file}")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate binary trials for EER computation.")
-    parser.add_argument("--base_directory", type=str, required=True, help="Base directory for the input files.")
-    parser.add_argument("--output_file", type=str, required=True, help="Output file for the binary trials.")
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Generate trials from utt2spk file.")
+    parser.add_argument('--utt2spk_file', type=str, help='Path to the utt2spk file')
+    parser.add_argument('--output_file', type=str, help='Path to the output file for trials')
+    parser.add_argument('--num_trials', type=int, default=1000, help='Number of trials to generate')
 
     args = parser.parse_args()
-    main(args.base_directory, args.output_file)
+    
+    generate_trials(args.utt2spk_file, args.output_file, args.num_trials)
