@@ -78,8 +78,10 @@ score_norm=false                    # Apply score normalization in inference.
 qmf_func=false                      # Apply quality measurement based calibration in inference.
 
 # [Task dependent] Set the datadir name created by local/data.sh
-train_set=          # Name of training set.
-valid_set=          # Name of validation set used for monitoring/tuning network training.
+spk_train_set=      # Name of speaker pretraining set.
+sasv_train_set=     # Name of sasv training set.
+spk_valid_set=      # Name of validation set used for monitoring/tuning network pretraining.
+sasv_valid_set=     # Name of validation set used for monitoring/tuning network training.
 cohort_set=         # Name of cohort set used for score normalization and qmf function.
 test_sets=          # Names of test sets. Multiple items (e.g., both dev and eval sets) can be specified.
 lang=multilingual   # The language type of corpus.
@@ -211,6 +213,12 @@ if [ -z "${sasv_exp}"  ]; then
     sasv_exp="${expdir}/sasv_${sasv_tag}"
 fi
 
+# Set dataset tuples
+train_sets=("${spk_train_set}" "${sasv_train_set}")
+valid_sets=("${spk_valid_set}" "${sasv_valid_set}")
+stats_dirs=("${spk_stats_dir}" "${sasv_stats_dir}")
+exps=("${spk_exp}" "${sasv_exp}")
+
 
 # Determine which stages to skip
 if "${skip_data_prep}"; then
@@ -235,136 +243,171 @@ if [ ${stage} -le 1  ] && [ ${stop_stage} -ge 1  ] && ! [[ " ${skip_stages} " =~
     log "Stage 1 FIN."
 fi
 
-if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ] && ! [[ " ${skip_stages} " =~ [[:space:]]2[[:space:]] ]]; then
-    if [ -n "${speed_perturb_factors}" ]; then
-        log "Stage 2: Speed perturbation: data/${train_set} -> data/${train_set}_sp"
-        # For example, when speed_perturb_factors="0.9 1.0 1.1", the number of unique speakers will be increased by three times
-        _scp_list="wav.scp "
 
-        for factor in ${speed_perturb_factors}; do
-            if ${python} -c "assert ${factor} != 1.0" 2>/dev/null; then
-                scripts/utils/perturb_enh_data_dir_speed.sh --utt_extra_files "${utt_extra_files}" "${factor}" "data/${train_set}" "data/${train_set}_sp${factor}" "${_scp_list}"
-                _dirs+="data/${train_set}_sp${factor} "
-            else
-                # If speed factor is 1, same as the original
-                _dirs+="data/${train_set} "
-            fi
+if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ] && ! [[ " ${skip_stages} " =~ [[:space:]]2[[:space:]] ]]; then
+
+    if [ -n "${speed_perturb_factors}" ]; then
+
+        for i in "${!train_sets[@]}"; do
+            train_set="${train_sets[i]}"
+            log "Stage 2: Speed perturbation: data/${train_set} -> data/${train_set}_sp"
+            
+            _scp_list="wav.scp "
+            _dirs=""
+
+            for factor in ${speed_perturb_factors}; do
+                if ${python} -c "assert ${factor} != 1.0" 2>/dev/null; then
+                    scripts/utils/perturb_enh_data_dir_speed.sh --utt_extra_files "${utt_extra_files}" "${factor}" "data/${train_set}" "data/${train_set}_sp${factor}" "${_scp_list}"
+                    _dirs+="data/${train_set}_sp${factor} "
+                else
+                    # If speed factor is 1, same as the original
+                    _dirs+="data/${train_set} "
+                fi
+            done
+            utils/combine_data.sh --extra-files "${_scp_list}" "data/${train_set}_sp" ${_dirs}
         done
-        utils/combine_data.sh --extra-files "${_scp_list}" "data/${train_set}_sp" ${_dirs}
     else
         log "Skip stage 2: Speed perturbation"
     fi
 fi
 
+# Update the names if speed perturbation was applied
 if [ -n "${speed_perturb_factors}" ]; then
-    train_set="${train_set}_sp"
-    spk_stats_dir="${spk_stats_dir}_sp"
-    spk_exp="${spk_exp}_sp"
+    for i in "${!train_sets[@]}"; do
+        train_sets[i]="${train_sets[i]}_sp"
+        stats_dirs[i]="${stats_dirs[i]}_sp"
+        exps[i]="${exps[i]}_sp"
+    done
+    # Update the original variables
+    spk_train_set="${train_sets[0]}"
+    sasv_train_set="${train_sets[1]}"
+    spk_stats_dir="${stats_dirs[0]}"
+    sasv_stats_dir="${stats_dirs[1]}"
+    spk_exp="${exps[0]}"
+    sasv_exp="${exps[1]}"
 fi
 
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     log "Stage 3: Format wav.scp: data/ -> ${data_feats}"
 
-    if "${skip_train}"; then
-        if "${eval_valid_set}"; then
-            _dsets="${valid_set} ${test_sets}"
-        else
-            _dsets="${test_sets}"
-        fi
-    else
-        _dsets="${valid_set} ${test_sets}"
-    fi
-
     if [ "${feats_type}" = raw ]; then
         if [ "${skip_train}" = false ]; then
-            utils/copy_data_dir.sh --validate_opts --non-print data/"${train_set}" "${data_feats}/${train_set}"
 
-            # copy extra files that are not covered by copy_data_dir.sh
-            # spkclass2utt will be used bydata sampler
-            cp data/"${train_set}/spk2utt" "${data_feats}/${train_set}/spkclass2utt"
-            cp data/"${train_set}/spf2utt" "${data_feats}/${train_set}/spf2utt"
-            for x in music noise speech; do
-                cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
+            for i in "${!train_sets[@]}"; do
+                train_set="${train_sets[i]}"
+                log "Formatting training set: ${train_set}"
+                # Format Training Utterances
+                utils/copy_data_dir.sh --validate_opts --non-print data/"${train_set}" "${data_feats}/${train_set}"
+
+                # copy extra files that are not covered by copy_data_dir.sh
+                # spkclass2utt and spfclass2utt will be used bydata sampler
+                cp data/"${train_set}/spk2utt" "${data_feats}/${train_set}/spkclass2utt"
+                cp data/"${train_set}/spf2utt" "${data_feats}/${train_set}/spfclass2utt"
+                for x in music noise speech; do
+                    cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
+                done
+                cp data/rirs.scp ${data_feats}/rirs.scp
+
+                # shellcheck disable=SC2086
+                scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
+                    --audio-format "${audio_format}" --fs "${fs}" \
+                    --multi-columns-input "${multi_columns_input_wav_scp}" \
+                    --multi-columns-output "${multi_columns_output_wav_scp}" \
+                    "data/${train_set}/wav.scp" "${data_feats}/${train_set}"
+
+                echo "${feats_type}" > "${data_feats}/${train_set}/feats_type"
+                if "${multi_columns_output_wav_scp}"; then
+                    echo "multi_${audio_format}" > "${data_feats}/${train_set}/audio_format"
+                else
+                    echo "${audio_format}" > "${data_feats}/${train_set}/audio_format"
+                fi
             done
-            cp data/rirs.scp ${data_feats}/rirs.scp
-
-            # shellcheck disable=SC2086
-            scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
-                --audio-format "${audio_format}" --fs "${fs}" \
-                --multi-columns-input "${multi_columns_input_wav_scp}" \
-                --multi-columns-output "${multi_columns_output_wav_scp}" \
-                "data/${train_set}/wav.scp" "${data_feats}/${train_set}"
-
-            echo "${feats_type}" > "${data_feats}/${train_set}/feats_type"
-            if "${multi_columns_output_wav_scp}"; then
-                echo "multi_${audio_format}" > "${data_feats}/${train_set}/audio_format"
-            else
-                echo "${audio_format}" > "${data_feats}/${train_set}/audio_format"
-            fi
         fi
 
-        # Calculate EER for valid/test since speaker verification is an open set problem
-        # Train can be either multi-column data or not, but valid/test always require multi-column trial
-        for dset in ${_dsets}; do
-            utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
+        # Format Validation and Test Utterances
+        for i in "${!valid_sets[@]}"; do
+            valid_set="${valid_sets[i]}"
+            log "Formatting validation set: ${valid_set}"
+            if "${eval_valid_set}"; then
+                _dsets="${valid_set} ${test_sets}"
+            else
+                _dsets="${test_sets}"
+            fi
+            for dset in ${_dsets}; do
+                utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
 
-            # copy extra files that are not covered by copy_data_dir.sh
-            # spkclass2utt will be used bydata sampler
-            cp data/"${dset}/spk2utt" "${data_feats}/${dset}/spkclass2utt"
-            cp data/${dset}/trial_label "${data_feats}/${dset}"
+                # copy extra files that are not covered by copy_data_dir.sh
+                cp data/${dset}/trial_label "${data_feats}/${dset}"
+                cp data/${dset}/trial.scp "${data_feats}/${dset}"
+                cp data/${dset}/trial2.scp "${data_feats}/${dset}"
 
-            # shellcheck disable=SC2086
-            scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
-                --audio-format "${audio_format}" --fs "${fs}" \
-                --multi-columns-input "${multi_columns_input_wav_scp}" \
-                --multi-columns-output "${multi_columns_output_wav_scp}" \
-                --out_filename trial.scp \
-                "data/${dset}/trial.scp" "${data_feats}/${dset}"
-            # shellcheck disable=SC2086
-            scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
-                --audio-format "${audio_format}" --fs "${fs}" \
-                --multi-columns-input "${multi_columns_input_wav_scp}" \
-                --multi-columns-output "${multi_columns_output_wav_scp}" \
-                --out_filename trial2.scp \
-                "data/${dset}/trial2.scp" "${data_feats}/${dset}"
+                # shellcheck disable=SC2086
+                scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
+                    --audio-format "${audio_format}" --fs "${fs}" \
+                    --multi-columns-input "${multi_columns_input_wav_scp}" \
+                    --multi-columns-output "${multi_columns_output_wav_scp}" \
+                    --out_filename trial.scp \
+                    "data/${dset}/trial.scp" "${data_feats}/${dset}"
+                # shellcheck disable=SC2086
+                scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
+                    --audio-format "${audio_format}" --fs "${fs}" \
+                    --multi-columns-input "${multi_columns_input_wav_scp}" \
+                    --multi-columns-output "${multi_columns_output_wav_scp}" \
+                    --out_filename trial2.scp \
+                    "data/${dset}/trial2.scp" "${data_feats}/${dset}"
 
-            echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
-            echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
-
+                echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
+                echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
+                for f in ${utt_extra_files}; do
+                    [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
+                done
+            done
         done
+
     elif [ "${feats_type}" = raw_copy ]; then
         if [ "${skip_train}" = false ]; then
-            utils/copy_data_dir.sh --validate_opts --non-print data/"${train_set}" "${data_feats}/${train_set}"
-            # spkclass2utt will be used bydata sampler
-            cp data/"${train_set}/spk2utt" "${data_feats}/${train_set}/spkclass2utt"
-            for x in music noise speech; do
-                cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
-            done
-            cp data/rirs.scp ${data_feats}/rirs.scp
+            for i in "${!train_sets[@]}"; do
+                train_set="${train_sets[i]}"
+                log "Formatting training set: ${train_set}"
+                utils/copy_data_dir.sh --validate_opts --non-print data/"${train_set}" "${data_feats}/${train_set}"
+                # spkclass2utt will be used bydata sampler
+                cp data/"${train_set}/spk2utt" "${data_feats}/${train_set}/spkclass2utt"
+                cp data/"${train_set}/spf2utt" "${data_feats}/${train_set}/spfclass2utt"
+                for x in music noise speech; do
+                    cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
+                done
+                cp data/rirs.scp ${data_feats}/rirs.scp
 
-            echo "${feats_type}" > "${data_feats}/${train_set}/feats_type"
-            if "${multi_columns_output_wav_scp}"; then
-                echo "multi_${audio_format}" > "${data_feats}/${train_set}/audio_format"
-            else
-                echo "${audio_format}" > "${data_feats}/${train_set}/audio_format"
-            fi
+                echo "${feats_type}" > "${data_feats}/${train_set}/feats_type"
+                if "${multi_columns_output_wav_scp}"; then
+                    echo "multi_${audio_format}" > "${data_feats}/${train_set}/audio_format"
+                else
+                    echo "${audio_format}" > "${data_feats}/${train_set}/audio_format"
+                fi
+            done
         fi
 
-        # Calculate EER for valid/test since speaker verification is an open set problem
-        # Train can be either multi-column data or not, but valid/test always require multi-column trial
-        for dset in ${_dsets}; do
-            utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
-            cp data/${dset}/trial_label "${data_feats}/${dset}"
-            cp data/${dset}/trial.scp "${data_feats}/${dset}"
-            cp data/${dset}/trial2.scp "${data_feats}/${dset}"
+        # Format Validation and Test Utterances
+        for i in "${!valid_sets[@]}"; do
+            valid_set="${valid_sets[i]}"
+            log "Formatting validation set: ${valid_set}"
+            if "${eval_valid_set}"; then
+                _dsets="${valid_set} ${test_sets}"
+            else
+                _dsets="${test_sets}"
+            fi
+            for dset in ${_dsets}; do
+                utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
+                cp data/${dset}/trial_label "${data_feats}/${dset}"
+                cp data/${dset}/trial.scp "${data_feats}/${dset}"
+                cp data/${dset}/trial2.scp "${data_feats}/${dset}"
 
-            echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
-            echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
-
-        done
-
-        for f in ${utt_extra_files}; do
-            [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
+                echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
+                echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
+                for f in ${utt_extra_files}; do
+                    [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
+                done
+            done
         done
     else
         log "${feats_type} is not supported yet."
