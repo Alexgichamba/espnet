@@ -70,6 +70,7 @@ spk_args=                       # Arguments for spk model training.
 spf_args=                       # Arguments for sasv model training.
 pretrained_model=               # Pretrained model to load for sasv training.
 ignore_init_mismatch=false      # Ignore weights corresponding to mismatched keys in the pretrained model.
+mode=                           # Training mode: spk or sasv
 
 # Inference related
 inference_config=conf/decode.yaml   # Inference configuration
@@ -217,6 +218,7 @@ fi
 train_sets=("${spk_train_set}" "${sasv_train_set}")
 valid_sets=("${spk_valid_set}" "${sasv_valid_set}")
 stats_dirs=("${spk_stats_dir}" "${sasv_stats_dir}")
+configs=("${spk_config}" "${sasv_config}")
 exps=("${spk_exp}" "${sasv_exp}")
 
 
@@ -230,6 +232,12 @@ if "${skip_packing}"; then
 fi
 if "${skip_upload_hf}"; then
     skip_stages+="11 "
+fi
+
+# check that the mode is either spk or sasv
+if [ -z "${mode}" ] || { [ "${mode}" != spk ] && [ "${mode}" != sasv ]; }; then
+    log "Error: --mode must be either spk or sasv."
+    exit 2
 fi
 
 skip_stages=$(echo "${skip_stages}" | tr ' ' '\n' | sort -nu | tr '\n' ' ')
@@ -248,155 +256,145 @@ if [ ${stage} -le 2 ] && [ ${stop_stage} -ge 2 ] && ! [[ " ${skip_stages} " =~ [
 
     if [ -n "${speed_perturb_factors}" ]; then
 
-        for i in "${!train_sets[@]}"; do
-            _train_set="${train_sets[i]}"
-            log "Stage 2: Speed perturbation: data/${_train_set} -> data/${_train_set}_sp"
-            
-            _scp_list="wav.scp "
-            _dirs=""
+        if [ "${mode}" = spk ]; then
+            _train_set="${spk_train_set}"
+        else
+            _train_set="${sasv_train_set}"
+        fi
+        log "Stage 2: Speed perturbation: data/${_train_set} -> data/${_train_set}_sp"
+        
+        _scp_list="wav.scp "
+        _dirs=""
 
-            for factor in ${speed_perturb_factors}; do
-                if ${python} -c "assert ${factor} != 1.0" 2>/dev/null; then
-                    scripts/utils/perturb_enh_data_dir_speed.sh --utt_extra_files "${utt_extra_files}" "${factor}" "data/${_train_set}" "data/${_train_set}_sp${factor}" "${_scp_list}"
-                    _dirs+="data/${_train_set}_sp${factor} "
-                else
-                    # If speed factor is 1, same as the original
-                    _dirs+="data/${_train_set} "
-                fi
-            done
-            utils/combine_data.sh --extra-files "${_scp_list}" "data/${_train_set}_sp" ${_dirs}
+        for factor in ${speed_perturb_factors}; do
+            if ${python} -c "assert ${factor} != 1.0" 2>/dev/null; then
+                scripts/utils/perturb_enh_data_dir_speed.sh --utt_extra_files "${utt_extra_files}" "${factor}" "data/${_train_set}" "data/${_train_set}_sp${factor}" "${_scp_list}"
+                _dirs+="data/${_train_set}_sp${factor} "
+            else
+                # If speed factor is 1, same as the original
+                _dirs+="data/${_train_set} "
+            fi
         done
+        utils/combine_data.sh --extra-files "${_scp_list}" "data/${_train_set}_sp" ${_dirs}
     else
         log "Skip stage 2: Speed perturbation"
     fi
-fi
 
-# Update the names if speed perturbation was applied
-if [ -n "${speed_perturb_factors}" ]; then
-    for i in "${!train_sets[@]}"; do
-        train_sets[i]="${train_sets[i]}_sp"
-        stats_dirs[i]="${stats_dirs[i]}_sp"
-        exps[i]="${exps[i]}_sp"
-    done
-    # Update the original variables
-    spk_train_set="${train_sets[0]}"
-    sasv_train_set="${train_sets[1]}"
-    spk_stats_dir="${stats_dirs[0]}"
-    sasv_stats_dir="${stats_dirs[1]}"
-    spk_exp="${exps[0]}"
-    sasv_exp="${exps[1]}"
+    # Update the names if speed perturbation was applied
+    if [ -n "${speed_perturb_factors}" ]; then
+        if [ "${mode}" = spk ]; then
+            spk_train_set="${spk_train_set}_sp" 
+            spk_stats_dir="${spk_stats_dir}_sp"
+            spk_exp="${spk_exp}_sp"
+        else
+            sasv_train_set="${sasv_train_set}_sp"
+            sasv_stats_dir="${sasv_stats_dir}_sp" 
+            sasv_exp="${sasv_exp}_sp"
+        fi
+    fi
 fi
 
 if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     log "Stage 3: Format wav.scp: data/ -> ${data_feats}"
 
+    if [ "${mode}" = spk ]; then
+        _train_set="${spk_train_set}"
+        _valid_set="${spk_valid_set}"
+    else
+        _train_set="${sasv_train_set}"
+        _valid_set="${sasv_valid_set}"
+    fi
+
+    if "${eval_valid_set}"; then
+        _dsets="${_valid_set} ${test_sets}"
+    else
+        _dsets="${test_sets}"
+    fi
+
     if [ "${feats_type}" = raw ]; then
         if [ "${skip_train}" = false ]; then
+            log "Formatting training set: ${_train_set}"
+            # Format Training Utterances
+            utils/copy_data_dir.sh --validate_opts --non-print data/"${_train_set}" "${data_feats}/${_train_set}"
 
-            for i in "${!train_sets[@]}"; do
-                _train_set="${train_sets[i]}"
-                log "Formatting training set: ${_train_set}"
-                # Format Training Utterances
-                utils/copy_data_dir.sh --validate_opts --non-print data/"${_train_set}" "${data_feats}/${_train_set}"
-
-                # copy extra files that are not covered by copy_data_dir.sh
-                # spkclass2utt and spfclass2utt will be used bydata sampler
-                cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/spkclass2utt"
-                cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
-                for x in music noise speech; do
-                    cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
-                done
-                cp data/rirs.scp ${data_feats}/rirs.scp
-
-                # shellcheck disable=SC2086
-                scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
-                    --audio-format "${audio_format}" --fs "${fs}" \
-                    --multi-columns-input "${multi_columns_input_wav_scp}" \
-                    --multi-columns-output "${multi_columns_output_wav_scp}" \
-                    "data/${_train_set}/wav.scp" "${data_feats}/${_train_set}"
-
-                echo "${feats_type}" > "${data_feats}/${_train_set}/feats_type"
-                if "${multi_columns_output_wav_scp}"; then
-                    echo "multi_${audio_format}" > "${data_feats}/${_train_set}/audio_format"
-                else
-                    echo "${audio_format}" > "${data_feats}/${_train_set}/audio_format"
-                fi
+            # copy extra files that are not covered by copy_data_dir.sh
+            # spkclass2utt and spfclass2utt will be used bydata sampler
+            cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/spkclass2utt"
+            cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
+            for x in music noise speech; do
+                cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
             done
+            cp data/rirs.scp ${data_feats}/rirs.scp
+
+            # shellcheck disable=SC2086
+            scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
+                --audio-format "${audio_format}" --fs "${fs}" \
+                --multi-columns-input "${multi_columns_input_wav_scp}" \
+                --multi-columns-output "${multi_columns_output_wav_scp}" \
+                "data/${_train_set}/wav.scp" "${data_feats}/${_train_set}"
+
+            echo "${feats_type}" > "${data_feats}/${_train_set}/feats_type"
+            if "${multi_columns_output_wav_scp}"; then
+                echo "multi_${audio_format}" > "${data_feats}/${_train_set}/audio_format"
+            else
+                echo "${audio_format}" > "${data_feats}/${_train_set}/audio_format"
+            fi
+
         fi
 
         # Format Validation and Test Utterances
-        for i in "${!valid_sets[@]}"; do
-            valid_set="${valid_sets[i]}"
-            log "Formatting validation set: ${valid_set}"
-            if "${eval_valid_set}"; then
-                _dsets="${valid_set} ${test_sets}"
-            else
-                _dsets="${test_sets}"
-            fi
-            for dset in ${_dsets}; do
-                utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
+        log "Formatting validation set: ${_valid_set}"
+        for dset in ${_dsets}; do
+            utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
 
-                # copy extra files that are not covered by copy_data_dir.sh
-                cp data/${dset}/trial_label "${data_feats}/${dset}"
-                cp data/${dset}/spk2enroll "${data_feats}/${dset}"
+            # copy extra files that are not covered by copy_data_dir.sh
+            cp data/${dset}/trial_label "${data_feats}/${dset}"
+            cp data/${dset}/spk2enroll "${data_feats}/${dset}"
 
-                # shellcheck disable=SC2086
-                scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
-                    --audio-format "${audio_format}" --fs "${fs}" \
-                    --multi-columns-input "${multi_columns_input_wav_scp}" \
-                    --multi-columns-output "${multi_columns_output_wav_scp}" \
-                    "data/${dset}/wav.scp" "${data_feats}/${dset}"
+            # shellcheck disable=SC2086
+            scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
+                --audio-format "${audio_format}" --fs "${fs}" \
+                --multi-columns-input "${multi_columns_input_wav_scp}" \
+                --multi-columns-output "${multi_columns_output_wav_scp}" \
+                "data/${dset}/wav.scp" "${data_feats}/${dset}"
 
-                echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
-                echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
-                for f in ${utt_extra_files}; do
-                    [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
-                done
+            echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
+            echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
+            for f in ${utt_extra_files}; do
+                [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
             done
         done
 
     elif [ "${feats_type}" = raw_copy ]; then
-        if [ "${skip_train}" = false ]; then
-            for i in "${!train_sets[@]}"; do
-                _train_set="${train_sets[i]}"
-                log "Formatting training set: ${_train_set}"
-                utils/copy_data_dir.sh --validate_opts --non-print data/"${_train_set}" "${data_feats}/${_train_set}"
-                # spkclass2utt will be used bydata sampler
-                cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/spkclass2utt"
-                cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
-                for x in music noise speech; do
-                    cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
-                done
-                cp data/rirs.scp ${data_feats}/rirs.scp
-
-                echo "${feats_type}" > "${data_feats}/${_train_set}/feats_type"
-                if "${multi_columns_output_wav_scp}"; then
-                    echo "multi_${audio_format}" > "${data_feats}/${_train_set}/audio_format"
-                else
-                    echo "${audio_format}" > "${data_feats}/${_train_set}/audio_format"
-                fi
+        if [ "${skip_train}" = false ]; then 
+            log "Formatting training set: ${_train_set}"
+            utils/copy_data_dir.sh --validate_opts --non-print data/"${_train_set}" "${data_feats}/${_train_set}"
+            # spkclass2utt will be used bydata sampler
+            cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/spkclass2utt"
+            cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
+            for x in music noise speech; do
+                cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
             done
+            cp data/rirs.scp ${data_feats}/rirs.scp
+
+            echo "${feats_type}" > "${data_feats}/${_train_set}/feats_type"
+            if "${multi_columns_output_wav_scp}"; then
+                echo "multi_${audio_format}" > "${data_feats}/${_train_set}/audio_format"
+            else
+                echo "${audio_format}" > "${data_feats}/${_train_set}/audio_format"
+            fi
         fi
 
         # Format Validation and Test Utterances
-        for i in "${!valid_sets[@]}"; do
-            valid_set="${valid_sets[i]}"
-            log "Formatting validation set: ${valid_set}"
-            if "${eval_valid_set}"; then
-                _dsets="${valid_set} ${test_sets}"
-            else
-                _dsets="${test_sets}"
-            fi
-            for dset in ${_dsets}; do
-                utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
-                cp data/${dset}/trial_label "${data_feats}/${dset}"
-                cp data/${dset}/spk2enroll "${data_feats}/${dset}"
+        for dset in ${_dsets}; do
+            utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
+            cp data/${dset}/trial_label "${data_feats}/${dset}"
+            cp data/${dset}/spk2enroll "${data_feats}/${dset}"
 
-                echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
-                echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
-                for f in ${utt_extra_files}; do
-                    [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
-                done
+            echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
+            echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
+            for f in ${utt_extra_files}; do
+                [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
             done
         done
     else
@@ -407,14 +405,6 @@ fi
 
 if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
     echo "Stage 4: Collect stats"
-    _spk_train_dir="${data_feats}/${train_set}"
-    _spk_valid_dir="${data_feats}/${valid_set}"
-
-    if [ -n "${spk_config}"  ]; then
-        # To generate the config file: e.g.
-        #   % python3 -m espnet2.bin.spk_train --print_config --optim adam
-        _opts+="--config ${spk_config} "
-    fi
 
     if [[ "${audio_format}" == *ark* ]]; then
         _type=kaldi_ark
@@ -423,20 +413,43 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         _type=sound
     fi
 
+    if [ "${mode}" = spk ]; then
+        _train_set="${spk_train_set}"
+        _valid_set="${spk_valid_set}"
+        _stats_dir="${spk_stats_dir}"
+        _exp="${spk_exp}"
+        _config="${spk_config}"
+    else
+        _train_set="${sasv_train_set}"
+        _valid_set="${sasv_valid_set}"
+        _stats_dir="${sasv_stats_dir}"
+        _exp="${sasv_exp}"
+        _config="${sasv_config}"
+    fi
+
+    _train_dir="${data_feats}/${_train_set}"
+    _valid_dir="${data_feats}/${_valid_set}"
+
+    if [ -n "${_config}"  ]; then
+        # To generate the config file: e.g.
+        #   % python3 -m espnet2.bin.spk_train --print_config --optim adam
+        _opts+="--config ${_config} "
+    fi
+
     # 1. Split key file
-    _logdir="${spk_stats_dir}/logdir"
+    _logdir="${_stats_dir}/logdir"
     mkdir -p "${_logdir}"
 
-    _nj=$(min "${nj}" "$(<${_spk_train_dir}/wav.scp wc -l)" "$(<${_spk_valid_dir}/wav.scp wc -l)")
+    _nj=$(min "${nj}" "$(<${_train_dir}/wav.scp wc -l)" "$(<${_valid_dir}/wav.scp wc -l)")
 
-    key_file="${_spk_train_dir}/wav.scp"
+    key_file="${_train_dir}/wav.scp"
     split_scps=""
     for n in $(seq "${_nj}"); do
         split_scps+=" ${_logdir}/train.${n}.scp"
     done
     utils/split_scp.pl "${key_file}" ${split_scps}
 
-    key_file="${_spk_valid_dir}/wav.scp"
+    key_file="${_valid_dir}/wav.scp"
     split_scps=""
     for n in $(seq "${_nj}"); do
         split_scps+=" ${_logdir}/valid.${n}.scp"
@@ -444,8 +457,8 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
     utils/split_scp.pl "${key_file}" ${split_scps}
 
     # 2. Generate run.sh
-    log "Generate '${spk_stats_dir}/run.sh'. You can resume the process from stage 3 using this script"
-    mkdir -p "${spk_stats_dir}"; echo "${run_args} -- stage3 \"\$@\"; exit \$?" > "${spk_stats_dir}/run.sh"; chmod +x "${spk_stats_dir}/run.sh"
+    log "Generate '${_stats_dir}/run.sh'. You can resume the process from stage 3 using this script"
+    mkdir -p "${_stats_dir}"; echo "${run_args} -- stage3 \"\$@\"; exit \$?" > "${_stats_dir}/run.sh"; chmod +x "${_stats_dir}/run.sh"
 
     # 3. Submit jobs
     log "Speaker collect-stats started... log: '${_logdir}/stats.*.log'"
@@ -455,12 +468,12 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         ${python} -m espnet2.bin.spk_train \
             --collect_stats true \
             --use_preprocessor false \
-            --train_data_path_and_name_and_type ${_spk_train_dir}/wav.scp,speech,${_type} \
-            --valid_data_path_and_name_and_type ${_spk_valid_dir}/wav.scp,speech,${_type} \
+            --train_data_path_and_name_and_type ${_train_dir}/wav.scp,speech,${_type} \
+            --valid_data_path_and_name_and_type ${_valid_dir}/wav.scp,speech,${_type} \
             --train_shape_file "${_logdir}/train.JOB.scp" \
             --valid_shape_file "${_logdir}/valid.JOB.scp" \
-            --spk2utt ${_spk_train_dir}/spk2utt \
-            --spk_num $(wc -l ${_spk_train_dir}/spk2utt | cut -f1 -d" ") \
+            --spk2utt ${_train_dir}/spk2utt \
+            --spk_num $(wc -l ${_train_dir}/spk2utt | cut -f1 -d" ") \
             --output_dir "${_logdir}/stats.JOB" \
             ${_opts} ${spk_args} || { cat $(grep -l -i error "${_logdir}"/stats.*.log) ; exit 1;  }
 
@@ -470,16 +483,15 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         _opts+="--input_dir ${_logdir}/stats.${i} "
     done
     # shellcheck disable=SC2086
-    ${python} -m espnet2.bin.aggregate_stats_dirs ${_opts} --skip_sum_stats --output_dir "${spk_stats_dir}"
+    ${python} -m espnet2.bin.aggregate_stats_dirs ${_opts} --skip_sum_stats --output_dir "${_stats_dir}"
 
-    cp ${spk_stats_dir}/valid/speech_shape ${spk_stats_dir}/valid/speech_shape2
 fi
 
 if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
     log "Stage 5: Speaker Pretraining."
 
-    _spk_train_dir="${data_feats}/${train_set}"
-    _spk_valid_dir="${data_feats}/${valid_set}"
+    _spk_train_dir="${data_feats}/${spk_train_set}"
+    _spk_valid_dir="${data_feats}/${spk_valid_set}"
     _opts=
     if [ -n "${spk_config}"  ]; then
         # To generate the config file: e.g.
@@ -523,75 +535,75 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
 fi
 
 if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
-    log "Stage 5: SASV Training."
+    log "Stage 6: SASV Training."
 
-    _spk_train_dir="${data_feats}/${train_set}"
-    _spk_valid_dir="${data_feats}/${valid_set}"
+    _sasv_train_dir="${data_feats}/${sasv_train_set}"
+    _sasv_valid_dir="${data_feats}/${sasv_valid_set}"
     _opts=
-    if [ -n "${spk_config}"  ]; then
+    if [ -n "${sasv_config}"  ]; then
         # To generate the config file: e.g.
         #   % python3 -m espnet2.bin.spk_train --print_config --optim adam
-        _opts+="--config ${spk_config} "
+        _opts+="--config ${sasv_config} "
     fi
 
-    log "Spk training started... log: '${spk_exp}/train.log'"
+    log "SASV training started... log: '${sasv_exp}/train.log'"
     if echo "${cuda_cmd}" | grep -e queue.pl -e queue-freegpu.pl &> /dev/null; then
         # SGE can't include "/" in a job name
-        jobname="$(basename ${spk_exp})"
+        jobname="$(basename ${sasv_exp})"
     else
-        jobname="${spk_exp}/train.log"
+        jobname="${sasv_exp}/train.log"
     fi
 
     ${python} -m espnet2.bin.launch \
         --cmd "${cuda_cmd} --name ${jobname}" \
-        --log ${spk_exp}/train.log \
+        --log ${sasv_exp}/train.log \
         --ngpu ${ngpu} \
         --num_nodes ${num_nodes} \
-        --init_file_prefix ${spk_exp}/.dist_init_ \
+        --init_file_prefix ${sasv_exp}/.dist_init_ \
         --multiprocessing_distributed true -- \
         ${python} -m espnet2.bin.spk_train \
             --use_preprocessor true \
             --resume true \
             ${pretrained_model:+--init_param $pretrained_model} \
             --ignore_init_mismatch ${ignore_init_mismatch} \
-            --output_dir ${spk_exp} \
-            --train_data_path_and_name_and_type ${_spk_train_dir}/wav.scp,speech,sound \
-            --train_data_path_and_name_and_type ${_spk_train_dir}/utt2spk,spk_labels,text \
-            --train_data_path_and_name_and_type ${_spk_train_dir}/utt2spf,spf_labels,text \
-            --train_shape_file ${spk_stats_dir}/train/speech_shape \
-            --valid_data_path_and_name_and_type ${_spk_valid_dir}/wav.scp,speech,sound \
-            --valid_data_path_and_name_and_type ${_spk_valid_dir}/trial_label,spk_labels,text \
-            --valid_data_path_and_name_and_type ${_spk_valid_dir}/spk2enroll,spk_enroll,text \
-            --spk2utt ${_spk_train_dir}/spk2utt \
-            --spf2utt ${_spk_train_dir}/spf2utt \
-            --spk_num $(wc -l ${_spk_train_dir}/spk2utt | cut -f1 -d" ") \
-            --spf_num $(wc -l ${_spk_train_dir}/spf2utt | cut -f1 -d" ") \
+            --output_dir ${sasv_exp} \
+            --train_data_path_and_name_and_type ${_sasv_train_dir}/wav.scp,speech,sound \
+            --train_data_path_and_name_and_type ${_sasv_train_dir}/utt2spk,spk_labels,text \
+            --train_data_path_and_name_and_type ${_sasv_train_dir}/utt2spf,spf_labels,text \
+            --train_shape_file ${sasv_stats_dir}/train/speech_shape \
+            --valid_data_path_and_name_and_type ${_sasv_valid_dir}/wav.scp,speech,sound \
+            --valid_data_path_and_name_and_type ${_sasv_valid_dir}/trial_label,spk_labels,text \
+            --valid_data_path_and_name_and_type ${_sasv_valid_dir}/spk2enroll,spk_enroll,text \
+            --spk2utt ${_sasv_train_dir}/spk2utt \
+            --spf2utt ${_sasv_train_dir}/spf2utt \
+            --spk_num $(wc -l ${_sasv_train_dir}/spk2utt | cut -f1 -d" ") \
+            --spf_num $(wc -l ${_sasv_train_dir}/spf2utt | cut -f1 -d" ") \
             --fold_length ${fold_length} \
-            --valid_shape_file ${spk_stats_dir}/valid/speech_shape \
-            --output_dir "${spk_exp}" \
-            ${_opts} ${spk_args}
+            --valid_shape_file ${sasv_stats_dir}/valid/speech_shape \
+            --output_dir "${sasv_exp}" \
+            ${_opts} ${sasv_args}
 fi
 
 
 if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
     log "Stage 7: Speaker embedding extraction."
 
-    infer_exp="${spk_exp}/inference"
+    infer_exp="${sasv_exp}/inference"
     _inference_dir=${data_feats}/${test_sets}
     if echo "${cuda_cmd}" | grep -e queue.pl -e queue-freegpu.pl &> /dev/null; then
         # SGE can't include "/" in a job name
         jobname="$(basename ${infer_exp})"
     else
-        jobname="${infer_exp}/spk_embed_extraction.log"
+        jobname="${infer_exp}/sasv_embed_extraction.log"
     fi
 
-    log "Extracting speaker embeddings for inference... log: '${infer_exp}/spk_embed_extraction_test.log'"
+    log "Extracting speaker embeddings for inference... log: '${infer_exp}/sasv_embed_extraction_test.log'"
     ${python} -m espnet2.bin.launch \
         --cmd "${cuda_cmd} --name ${jobname}" \
-        --log ${infer_exp}/spk_embed_extraction_test.log \
+        --log ${infer_exp}/sasv_embed_extraction_test.log \
         --ngpu ${ngpu} \
         --num_nodes ${num_nodes} \
-        --init_file_prefix ${spk_exp}/.dist_init_ \
+        --init_file_prefix ${sasv_exp}/.dist_init_ \
         --multiprocessing_distributed true -- \
         ${python} -m espnet2.bin.spk_embed_extract \
             --use_preprocessor true \
@@ -599,12 +611,12 @@ if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
             --data_path_and_name_and_type ${_inference_dir}/wav.scp,speech,sound \
             --data_path_and_name_and_type ${_inference_dir}/spk2enroll,spk_enroll,text \
             --data_path_and_name_and_type ${_inference_dir}/trial_label,spk_labels,text \
-            --shape_file ${spk_stats_dir}/test/speech_shape \
+            --shape_file ${sasv_stats_dir}/test/speech_shape \
             --fold_length ${fold_length} \
             --config ${inference_config} \
-            --spk_train_config "${spk_exp}/config.yaml" \
-            --spk_model_file "${spk_exp}"/${inference_model} \
-            ${spk_args}
+            --spk_train_config "${sasv_exp}/config.yaml" \
+            --spk_model_file "${sasv_exp}"/${inference_model} \
+            ${sasv_args}
 
     # # extract embeddings for cohort set
     # if [ "$score_norm" = true  ] || [ "$qmf_func" = true  ]; then
@@ -669,7 +681,7 @@ fi
 if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
     log "Stage 8: Score calculation and post-processing."
 
-    infer_exp="${spk_exp}/inference"
+    infer_exp="${sasv_exp}/inference"
     _inference_dir=${data_feats}/${test_sets}
     cohort_dir="${data_feats}/${cohort_set}"
 
@@ -706,7 +718,7 @@ fi
 
 if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
     log "Stage 9: Calculate metrics."
-    infer_exp="${spk_exp}/inference"
+    infer_exp="${sasv_exp}/inference"
     _inference_dir=${data_feats}/${test_sets}
 
     if "$score_norm"; then
@@ -727,20 +739,20 @@ if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
     ${python} pyscripts/utils/calculate_eer_mindcf.py ${score_dir} ${infer_exp}/${test_sets}_metrics
 
     # Show results in Markdown syntax
-    ${python} scripts/utils/show_spk_result.py "${infer_exp}/${test_sets}_metrics" "${spk_exp}"/RESULTS.md $(echo ${spk_config} | cut -d'.' -f1)
-    cat "${spk_exp}"/RESULTS.md
+    ${python} scripts/utils/show_spk_result.py "${infer_exp}/${test_sets}_metrics" "${sasv_exp}"/RESULTS.md $(echo ${sasv_config} | cut -d'.' -f1)
+    cat "${sasv_exp}"/RESULTS.md
 fi
 
-packed_model="${spk_exp}/${spk_exp##*/}_${inference_model%.*}.zip"
+packed_model="${sasv_exp}/${sasv_exp##*/}_${inference_model%.*}.zip"
 if [ ${stage} -le 10 ] && [ ${stop_stage} -ge 10 ] && ! [[ " ${skip_stages} " =~ [[:space:]]10[[:space:]] ]]; then
     log "Stage 10: Pack model: ${packed_model}"
 
     # shellcheck disable=SC2086
     ${python} -m espnet2.bin.pack spk \
-        --train_config "${spk_exp}"/config.yaml \
-        --model_file "${spk_exp}"/"${inference_model}" \
-        --option "${spk_exp}"/RESULTS.md \
-        --option "${spk_exp}"/images \
+        --train_config "${sasv_exp}"/config.yaml \
+        --model_file "${sasv_exp}"/"${inference_model}" \
+        --option "${sasv_exp}"/RESULTS.md \
+        --option "${sasv_exp}"/images \
         --outpath "${packed_model}"
 fi
 
@@ -784,7 +796,7 @@ if [ ${stage} -le 11 ] && [ ${stop_stage} -ge 11 ] && ! [[ " ${skip_stages} " =~
     # shellcheck disable=SC2034
     espnet_task=SPK
     # shellcheck disable=SC2034
-    task_exp=${spk_exp}
+    task_exp=${sasv_exp}
     eval "echo \"$(cat scripts/utils/TEMPLATE_HF_Readme.md)\"" > "${dir_repo}"/README.md
 
     this_folder=${PWD}
