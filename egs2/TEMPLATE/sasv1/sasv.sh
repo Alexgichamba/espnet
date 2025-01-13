@@ -60,7 +60,7 @@ min_wav_duration=1.0                # Minimum duration in second.
 max_wav_duration=60.                # Maximum duration in second.
 
 # Speaker model related
-mode=                           # Training mode: spk (pre-training) or sasv
+mode=sasv                       # Training mode: spk (pre-training) or sasv
 spk_exp=                        # Specify the directory path for spk experiment.
 sasv_exp=                       # Specify the directory path for sasv experiment.
 spk_tag=                        # Suffix to the result dir for spk model training.
@@ -158,8 +158,11 @@ log "$0 $*"
 run_args=$(scripts/utils/print_args.sh $0 "$@")
 . utils/parse_options.sh
 
+
+
 if [ $# -ne 0  ]; then
     log "${help_message}"
+    echo "Positional arguments passed: $@"
     log "Error: No positional arguments are required."
         exit 2
 fi
@@ -238,12 +241,6 @@ if "${skip_upload_hf}"; then
     skip_stages+="11 "
 fi
 
-# check that the mode is either spk or sasv
-if [ -z "${mode}" ] || { [ "${mode}" != spk ] && [ "${mode}" != sasv ]; }; then
-    log "Error: --mode must be either spk or sasv."
-    exit 2
-fi
-
 skip_stages=$(echo "${skip_stages}" | tr ' ' '\n' | sort -nu | tr '\n' ' ')
 log "Skipped stages: ${skip_stages}"
 
@@ -309,7 +306,7 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         _valid_set="${sasv_valid_set}"
     fi
 
-    if "${eval_valid_set}"; then
+    if "${eval_valid_set}" = true; then
         _dsets="${_valid_set} ${test_sets}"
     else
         _dsets="${test_sets}"
@@ -322,9 +319,12 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
             utils/copy_data_dir.sh --validate_opts --non-print data/"${_train_set}" "${data_feats}/${_train_set}"
 
             # copy extra files that are not covered by copy_data_dir.sh
-            # spkclass2utt and spfclass2utt will be used bydata sampler
+            # spkclass2utt and spfclass2utt will be used by the data sampler
             cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/spkclass2utt"
-            cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
+            # if mode is sasv, copy spf2utt for use by the sasv sampler
+            if [ "${mode}" = sasv ]; then
+                cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
+            fi
             for x in music noise speech; do
                 cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
             done
@@ -347,8 +347,8 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         fi
 
         # Format Validation and Test Utterances
-        log "Formatting validation set: ${_valid_set}"
         for dset in ${_dsets}; do
+            log "Formatting validation/eval set: ${dset}"
             utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
 
             # copy extra files that are not covered by copy_data_dir.sh
@@ -375,7 +375,9 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
             utils/copy_data_dir.sh --validate_opts --non-print data/"${_train_set}" "${data_feats}/${_train_set}"
             # spkclass2utt will be used bydata sampler
             cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/spkclass2utt"
-            cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
+            if [ "${mode}" = sasv ]; then
+                cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
+            fi
             for x in music noise speech; do
                 cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
             done
@@ -693,30 +695,30 @@ if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
     ${python} pyscripts/utils/spk_calculate_scores_from_embeddings.py ${infer_exp}/${test_sets}_embeddings.npz ${_inference_dir}/trial_label ${infer_exp}/${test_sets}_raw_trial_scores
     scorefile_cur=${infer_exp}/${test_sets}_raw_trial_scores
 
-    if "$score_norm"; then
-        log "Stage 8-b: apply score normalization."
-        ${python} pyscripts/utils/spk_apply_score_norm.py ${scorefile_cur} ${infer_exp}/${test_sets}_embeddings.npz ${infer_exp}/${cohort_set}_embeddings.npz ${cohort_dir}/utt2spk ${infer_exp}/${test_sets}_scorenormed_scores ${inference_config} ${ngpu}
-        scorefile_cur=${infer_exp}/${test_sets}_scorenormed_scores
-    fi
+    # if "$score_norm"; then
+    #     log "Stage 8-b: apply score normalization."
+    #     ${python} pyscripts/utils/spk_apply_score_norm.py ${scorefile_cur} ${infer_exp}/${test_sets}_embeddings.npz ${infer_exp}/${cohort_set}_embeddings.npz ${cohort_dir}/utt2spk ${infer_exp}/${test_sets}_scorenormed_scores ${inference_config} ${ngpu}
+    #     scorefile_cur=${infer_exp}/${test_sets}_scorenormed_scores
+    # fi
 
-    if "$qmf_func"; then
-        log "Stage 8-c: apply QMF calibration."
-        log "get raw scores for the qmf train set."
-        ${python} pyscripts/utils/spk_calculate_scores_from_embeddings.py ${infer_exp}/qmf/${train_set}_embeddings.npz ${cohort_dir}/qmf_train_label ${infer_exp}/qmf/${cohort_set}_raw_trial_scores
+    # if "$qmf_func"; then
+    #     log "Stage 8-c: apply QMF calibration."
+    #     log "get raw scores for the qmf train set."
+    #     ${python} pyscripts/utils/spk_calculate_scores_from_embeddings.py ${infer_exp}/qmf/${train_set}_embeddings.npz ${cohort_dir}/qmf_train_label ${infer_exp}/qmf/${cohort_set}_raw_trial_scores
 
-        if "$score_norm"; then
-            log "normalize qmf train set scores."
-            ${python} pyscripts/utils/spk_apply_score_norm.py ${infer_exp}/qmf/${cohort_set}_raw_trial_scores ${infer_exp}/qmf/${cohort_set}_embeddings.npz ${infer_exp}/${cohort_set}_embeddings.npz ${cohort_dir}/utt2spk ${infer_exp}/qmf/${cohort_set}_scorenormed_scores ${inference_config} ${ngpu}
-            qmf_train_scores=${infer_exp}/qmf/${cohort_set}_scorenormed_scores
-            test_scores=${infer_exp}/${test_sets}_scorenormed_scores
-        else
-            qmf_train_scores=${infer_exp}/qmf/${cohort_set}_raw_trial_scores
-            test_scores=${infer_exp}/${test_sets}_raw_trial_scores
-        fi
+    #     if "$score_norm"; then
+    #         log "normalize qmf train set scores."
+    #         ${python} pyscripts/utils/spk_apply_score_norm.py ${infer_exp}/qmf/${cohort_set}_raw_trial_scores ${infer_exp}/qmf/${cohort_set}_embeddings.npz ${infer_exp}/${cohort_set}_embeddings.npz ${cohort_dir}/utt2spk ${infer_exp}/qmf/${cohort_set}_scorenormed_scores ${inference_config} ${ngpu}
+    #         qmf_train_scores=${infer_exp}/qmf/${cohort_set}_scorenormed_scores
+    #         test_scores=${infer_exp}/${test_sets}_scorenormed_scores
+    #     else
+    #         qmf_train_scores=${infer_exp}/qmf/${cohort_set}_raw_trial_scores
+    #         test_scores=${infer_exp}/${test_sets}_raw_trial_scores
+    #     fi
 
-        log "Apply qmf function."
-        ${python} pyscripts/utils/spk_apply_qmf_func.py ${cohort_dir}/qmf_train.scp ${cohort_dir}/qmf_train2.scp ${qmf_train_scores} ${infer_exp}/qmf/${cohort_set}_embeddings.npz ${_inference_dir}/trial.scp ${_inference_dir}/trial2.scp ${test_scores} ${infer_exp}/${test_sets}_embeddings.npz ${infer_exp}/qmf/${test_sets}_qmf_scores
-    fi
+    #     log "Apply qmf function."
+    #     ${python} pyscripts/utils/spk_apply_qmf_func.py ${cohort_dir}/qmf_train.scp ${cohort_dir}/qmf_train2.scp ${qmf_train_scores} ${infer_exp}/qmf/${cohort_set}_embeddings.npz ${_inference_dir}/trial.scp ${_inference_dir}/trial2.scp ${test_scores} ${infer_exp}/${test_sets}_embeddings.npz ${infer_exp}/qmf/${test_sets}_qmf_scores
+    # fi
 
 fi
 

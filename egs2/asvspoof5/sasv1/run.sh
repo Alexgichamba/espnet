@@ -5,7 +5,7 @@ set -o pipefail
 
 # Remember to update the following variables based on the stage
 mode=spk
-audio_format=flac
+audio_format=wav
 skip_spk_pretrain=false
 
 spk_config=conf/spk_pretrain_SKATDNN_mel.yaml
@@ -17,7 +17,7 @@ spk_valid_set=voxceleb1_test
 sasv_train_set=asvspoof5_train
 sasv_valid_set=asvspoof5_dev
 test_sets=asvspoof5_eval
-
+eval_valid_set=true
 skip_train=false
 
 feats_type="raw" # or raw_copy
@@ -30,15 +30,19 @@ inference_model=valid.a_dcf.best.pth
 ./sasv.sh \
     --feats_type ${feats_type} \
     --spk_config ${spk_config} \
-    --train_set ${train_set} \
-    --valid_set ${valid_set} \
-    --cohort_set ${cohort_set} \
+    --spk_train_set ${spk_train_set} \
+    --spk_valid_set ${spk_valid_set} \
+    --sasv_config ${sasv_config} \
+    --sasv_train_set ${sasv_train_set} \
+    --sasv_valid_set ${sasv_valid_set} \
     --test_sets ${test_sets} \
+    --eval_valid_set ${eval_valid_set} \
     --skip_train ${skip_train} \
     --ngpu ${ngpu} \
     --nj ${nj} \
     --speed_perturb_factors "${speed_perturb_factors}" \
-    --audio_format ${audio_format} \
     --inference_model ${inference_model} \
     --mode ${mode} \
+    --audio_format ${audio_format} \
+    --skip_spk_pretrain ${skip_spk_pretrain} \
     "$@"
