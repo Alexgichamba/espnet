@@ -38,7 +38,7 @@ skip_upload_hf=true     # Skip uploading to huggingface stage.
 eval_valid_set=false    # Run decoding for the validation set
 ngpu=1                  # The number of gpus ("0" uses cpu, otherwise use gpu).
 num_nodes=1             # The number of nodes.
-nj=32                   # The number of parallel jobs.
+nj=8                    # The number of parallel jobs.
 dumpdir=dump            # Directory to dump features.
 expdir=exp              # Directory to save experiments.
 python=python3          # Specify python to execute espnet commands.
@@ -60,6 +60,7 @@ min_wav_duration=1.0                # Minimum duration in second.
 max_wav_duration=60.                # Maximum duration in second.
 
 # Speaker model related
+mode=                           # Training mode: spk (pre-training) or sasv
 spk_exp=                        # Specify the directory path for spk experiment.
 sasv_exp=                       # Specify the directory path for sasv experiment.
 spk_tag=                        # Suffix to the result dir for spk model training.
@@ -70,13 +71,12 @@ spk_args=                       # Arguments for spk model training.
 spf_args=                       # Arguments for sasv model training.
 pretrained_model=               # Pretrained model to load for sasv training.
 ignore_init_mismatch=false      # Ignore weights corresponding to mismatched keys in the pretrained model.
-mode=                           # Training mode: spk or sasv
 
 # Inference related
-inference_config=conf/decode.yaml   # Inference configuration
-inference_model=valid.eer.best.pth  # Inference model weight file
-score_norm=false                    # Apply score normalization in inference.
-qmf_func=false                      # Apply quality measurement based calibration in inference.
+inference_config=conf/decode.yaml       # Inference configuration
+inference_model=valid.a_dcf.best.pth    # Inference model weight file
+score_norm=false                        # Apply score normalization in inference.
+qmf_func=false                          # Apply quality measurement based calibration in inference.
 
 # [Task dependent] Set the datadir name created by local/data.sh
 spk_train_set=      # Name of speaker pretraining set.
@@ -225,6 +225,10 @@ exps=("${spk_exp}" "${sasv_exp}")
 # Determine which stages to skip
 if "${skip_data_prep}"; then
     skip_stages+="1 2 "
+fi
+
+if "${skip_spk_pretrain}"; then
+    skip_stages+="5 "
 fi
 
 if "${skip_packing}"; then
