@@ -16,6 +16,7 @@ def main(args):
         utt_id, path = scp.strip().split(" ")
         scp_dict[utt_id] = path
 
+    utterances = set()
     with open(os.path.join(args.dst, "spk2enroll"), "w") as f_spkenroll, open(
         os.path.join(args.dst, "trial_label"), "w") as f_label:
         for tr in lines_trial_org:
@@ -23,8 +24,13 @@ def main(args):
             utt1 = utt1[:-4]
             utt2 = utt2[:-4]
             joint_key = "*".join([utt1, utt2])
-            f_spkenroll.write(f"{utt1} {utt1}\n")
             f_label.write(f"{joint_key} {label}\n")
+            utterances.add(utt1)
+            utterances.add(utt2)
+        
+        # write the unique utterances to spk2enroll
+        for utt in utterances:
+            f_spkenroll.write(f"{utt} {utt}\n")
 
 
 if __name__ == "__main__":
@@ -45,7 +51,7 @@ if __name__ == "__main__":
         "--dst",
         type=str,
         required=True,
-        help="destinatino directory of processed trial and label files",
+        help="destination directory of processed trial and label files",
     )
     args = parser.parse_args()
 

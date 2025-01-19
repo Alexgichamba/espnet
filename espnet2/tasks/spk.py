@@ -289,10 +289,10 @@ class SpeakerTask(AbsTask):
     def optional_data_names(
         cls, train: bool = True, inference: bool = False
     ) -> Tuple[str, ...]:
-        # When calculating EER, we need trials where each trial has two
-        # utterances. speech2 corresponds to the second utterance of each
-        # trial pair in the validation/inference phase.
-        retval = ("speech2", "trial", "spk_labels", "task_tokens")
+        # When calculating EER, we need trials where the spk_enroll contains
+        # the speaker embedding utterances and the trial_label contains the
+        # speakerID, test utterance and label.
+        retval = ("spk_enroll", "trial_label", "task_tokens")
 
         return retval
 

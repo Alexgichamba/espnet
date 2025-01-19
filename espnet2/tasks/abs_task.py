@@ -1283,6 +1283,7 @@ class AbsTask(ABC):
         distributed_option.init_options()
 
         # NOTE(kamo): Don't use logging before invoking logging.basicConfig()
+        print(f"Distributed Rank: {distributed_option.dist_rank}")
         if not distributed_option.distributed or distributed_option.dist_rank == 0:
             if not distributed_option.distributed:
                 _rank = ""

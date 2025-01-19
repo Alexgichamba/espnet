@@ -319,8 +319,8 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
             utils/copy_data_dir.sh --validate_opts --non-print data/"${_train_set}" "${data_feats}/${_train_set}"
 
             # copy extra files that are not covered by copy_data_dir.sh
-            # spkclass2utt and spfclass2utt will be used by the data sampler
-            cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/spkclass2utt"
+            # category2utt and spfclass2utt will be used by the data sampler
+            cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/category2utt"
             # if mode is sasv, copy spf2utt for use by the sasv sampler
             if [ "${mode}" = sasv ]; then
                 cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
@@ -373,8 +373,8 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         if [ "${skip_train}" = false ]; then 
             log "Formatting training set: ${_train_set}"
             utils/copy_data_dir.sh --validate_opts --non-print data/"${_train_set}" "${data_feats}/${_train_set}"
-            # spkclass2utt will be used bydata sampler
-            cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/spkclass2utt"
+            # category2utt will be used bydata sampler
+            cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/category2utt"
             if [ "${mode}" = sasv ]; then
                 cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
             fi
@@ -530,7 +530,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
             --train_data_path_and_name_and_type ${_spk_train_dir}/utt2spk,spk_labels,text \
             --train_shape_file ${spk_stats_dir}/train/speech_shape \
             --valid_data_path_and_name_and_type ${_spk_valid_dir}/wav.scp,speech,sound \
-            --valid_data_path_and_name_and_type ${_spk_valid_dir}/trial_label,spk_labels,text \
+            --valid_data_path_and_name_and_type ${_spk_valid_dir}/trial_label,trial_label,text \
             --valid_data_path_and_name_and_type ${_spk_valid_dir}/spk2enroll,spk_enroll,text \
             --spk2utt ${_spk_train_dir}/spk2utt \
             --spk_num $(wc -l ${_spk_train_dir}/spk2utt | cut -f1 -d" ") \

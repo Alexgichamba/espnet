@@ -153,7 +153,7 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
         if [ ! -f "${trg_dir}/voxceleb1_test/trial_label" ]; then
             log "Making trial files for voxceleb1_test"
             mkdir -p "${trg_dir}/voxceleb1_test"
-            python3 local/voxceleb_trial_prep.py --scp "${trg_dir}/voxceleb1_test/wav.scp" --dst "${trg_dir}/voxceleb1_test" --trial "${data_dir_prefix}/voxceleb1/veri_test2.txt"
+            python3 local/voxceleb_trial_prep.py --scp "${trg_dir}/voxceleb1_test/wav.scp" --dst "${trg_dir}/voxceleb1_test" --trial "${data_dir_prefix}/veri_test2.txt"
             for f in wav.scp utt2spk spk2enroll trial_label; do
                 sort "${trg_dir}/voxceleb1_test/${f}" -o "${trg_dir}/voxceleb1_test/${f}"
             done
