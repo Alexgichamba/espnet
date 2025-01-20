@@ -22,7 +22,7 @@ skip_train=false
 
 feats_type="raw" # or raw_copy
 
-ngpu=2
+ngpu=1
 nj=4
 speed_perturb_factors=
 inference_model=valid.a_dcf.best.pth

@@ -81,7 +81,6 @@ optim_conf:
   weight_decay: 0.00005
   amsgrad: False
 
-num_iters_per_epoch: 7128
 # Scheduler
 scheduler: CosineAnnealingWarmupRestarts
 scheduler_conf:

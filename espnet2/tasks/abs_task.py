@@ -1283,7 +1283,6 @@ class AbsTask(ABC):
         distributed_option.init_options()
 
         # NOTE(kamo): Don't use logging before invoking logging.basicConfig()
-        print(f"Distributed Rank: {distributed_option.dist_rank}")
         if not distributed_option.distributed or distributed_option.dist_rank == 0:
             if not distributed_option.distributed:
                 _rank = ""
@@ -1904,18 +1903,25 @@ class AbsTask(ABC):
                         f"{len(batch)} < {world_size}"
                     )
             batches = [batch[rank::world_size] for batch in batches]
-
-        return CategoryIterFactory(
+        
+        kwargs = dict(
             dataset=dataset,
             batches=batches,
             seed=args.seed,
-            num_iters_per_epoch=iter_options.num_iters_per_epoch,
             sampler_args=sampler_args,
             shuffle=iter_options.train,
             num_workers=args.num_workers,
             collate_fn=iter_options.collate_fn,
             pin_memory=args.ngpu > 0,
         )
+
+        if iter_options.num_iters_per_epoch is not None:
+            kwargs["num_iters_per_epoch"] = iter_options.num_iters_per_epoch
+        else:
+            logging.warning(f"num_iters_per_epoch is not set. Setting to number of mini-batches {len(batches)}")
+            kwargs["num_iters_per_epoch"] = len(batches)
+
+        return CategoryIterFactory(**kwargs)
 
     @classmethod
     @typechecked

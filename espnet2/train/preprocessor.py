@@ -2035,15 +2035,11 @@ class SpkPreprocessor(CommonPreprocessor):
                 data["speech"] = self._apply_data_augmentation(data["speech"])
         else:
             audio = data["speech"]
-            audio2 = data["speech2"]
 
             # duplicate if utt is shorter than minimum required duration
             if len(audio) < self.target_duration:
                 shortage = self.target_duration - len(audio) + 1
                 audio = np.pad(audio, (0, shortage), "wrap")
-            if len(audio2) < self.target_duration:
-                shortage = self.target_duration - len(audio2) + 1
-                audio2 = np.pad(audio2, (0, shortage), "wrap")
 
             startframe = np.linspace(
                 0, len(audio) - self.target_duration, num=self.num_eval
@@ -2053,16 +2049,7 @@ class SpkPreprocessor(CommonPreprocessor):
                 audios.append(audio[int(frame) : int(frame) + self.target_duration])
             audios = np.stack(audios, axis=0)
 
-            startframe2 = np.linspace(
-                0, len(audio2) - self.target_duration, num=self.num_eval
-            )
-            audios2 = []
-            for frame in startframe2:
-                audios2.append(audio2[int(frame) : int(frame) + self.target_duration])
-            audios2 = np.stack(audios2, axis=0)
-
             data["speech"] = audios
-            data["speech2"] = audios2
 
         return data
 
@@ -2165,8 +2152,6 @@ class SpkPreprocessor(CommonPreprocessor):
         if self.train:
             int_label = self.spk2label[data["spk_labels"]]
             data["spk_labels"] = np.asarray([int_label], dtype=np.int64)
-        else:
-            data["spk_labels"] = np.asarray([int(data["spk_labels"])])
 
         if "task_tokens" in data:
             data["task_tokens"] = np.asarray([int(data["task_tokens"])])
