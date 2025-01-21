@@ -319,11 +319,12 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
             utils/copy_data_dir.sh --validate_opts --non-print data/"${_train_set}" "${data_feats}/${_train_set}"
 
             # copy extra files that are not covered by copy_data_dir.sh
-            # category2utt and spfclass2utt will be used by the data sampler
+            # category2utt and spf2utt will be used by the data sampler
             cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/category2utt"
             # if mode is sasv, copy spf2utt for use by the sasv sampler
             if [ "${mode}" = sasv ]; then
-                cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
+                cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spf2utt"
+                cp data/"${_train_set}/utt2spf" "${data_feats}/${_train_set}/utt2spf"
             fi
             for x in music noise speech; do
                 cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
@@ -376,7 +377,7 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
             # category2utt will be used bydata sampler
             cp data/"${_train_set}/spk2utt" "${data_feats}/${_train_set}/category2utt"
             if [ "${mode}" = sasv ]; then
-                cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spfclass2utt"
+                cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spf2utt"
             fi
             for x in music noise speech; do
                 cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
@@ -570,7 +571,7 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
         --num_nodes ${num_nodes} \
         --init_file_prefix ${sasv_exp}/.dist_init_ \
         --multiprocessing_distributed true -- \
-        ${python} -m espnet2.bin.spk_train \
+        ${python} -m espnet2.bin.sasv_train \
             --use_preprocessor true \
             --resume true \
             ${pretrained_model:+--init_param $pretrained_model} \
@@ -590,7 +591,8 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
             --fold_length ${fold_length} \
             --valid_shape_file ${sasv_stats_dir}/valid/speech_shape \
             --output_dir "${sasv_exp}" \
-            ${_opts} ${sasv_args}
+            ${_opts}
+            # ${sasv_args}
 fi
 
 

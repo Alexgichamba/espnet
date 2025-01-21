@@ -4,9 +4,9 @@ set -u
 set -o pipefail
 
 # Remember to update the following variables based on the stage
-mode=spk
-audio_format=wav
-skip_spk_pretrain=false
+mode=sasv
+audio_format=flac
+skip_spk_pretrain=true
 
 spk_config=conf/pretrain_SKATDNN_mel.yaml
 sasv_config=conf/train_SKATDNN_mel.yaml
@@ -16,7 +16,7 @@ spk_valid_set=voxceleb1_test
 
 sasv_train_set=asvspoof5_train
 sasv_valid_set=asvspoof5_dev
-test_sets=voxceleb1_test
+test_sets=asvspoof5_eval
 eval_valid_set=true
 skip_train=false
 

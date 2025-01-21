@@ -8,6 +8,7 @@ overriding validate_one_epoch.
 """
 
 from typing import Dict, Iterable
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -20,9 +21,20 @@ from espnet2.train.distributed_utils import DistributedOption
 from espnet2.train.reporter import SubReporter
 from espnet2.train.trainer import Trainer, TrainerOptions
 from espnet2.utils.eer import ComputeErrorRates, ComputeMinDcf, tuneThresholdfromScore
+from espnet2.utils.a_dcf import calculate_a_dcf
 
 if torch.distributed.is_available():
     from torch.distributed import ReduceOp
+
+
+@dataclass
+class SASVCostModel:
+    Pspf: float = 0.05
+    Pnontrg: float = 0.05
+    Ptrg: float = 0.9
+    Cmiss: float = 1
+    Cfa_asv: float = 10
+    Cfa_cm: float = 20
 
 
 class SpkTrainer(Trainer):
@@ -81,6 +93,15 @@ class SpkTrainer(Trainer):
                 trial_pairs.append((spk_id, test_utt, label))
         print(f"Validating with {len(trial_pairs)} trials")
 
+        # task (spk or sasv)
+        task = None
+        unique_labels = set([label for _, _, label in trial_pairs])
+        if len(unique_labels) == 2:
+            task = "spk"
+        elif len(unique_labels) == 3:
+            task = "sasv"
+        else:
+            raise ValueError(f"Unknown task with {unique_labels} unique labels")
 
         model.eval()
 
@@ -219,44 +240,87 @@ class SpkTrainer(Trainer):
         n_trials = len(scores)
         scores_trg = []
         scores_nontrg = []
-        for _s, _l in zip(scores, labels):
-            if _l == 1:
-                scores_trg.append(_s)
-            elif _l == 0:
-                scores_nontrg.append(_s)
-            else:
-                raise ValueError(f"{_l}, {type(_l)}")
+        scores_spf = []
+
+        if task == "spk":
+            for _s, _l in zip(scores, labels):
+                if _l == 1:
+                    scores_trg.append(_s)
+                elif _l == 0:
+                    scores_nontrg.append(_s)
+                else:
+                    raise ValueError(f"{_l}, {type(_l)}")
+        else:
+            for _s, _l in zip(scores, labels):
+                if _l == 0:
+                    scores_trg.append(_s)
+                elif _l == 1:
+                    scores_nontrg.append(_s)
+                elif _l == 2:
+                    scores_spf.append(_s)
+                else:
+                    raise ValueError(f"{_l}, {type(_l)}")
 
         trg_mean = float(np.mean(scores_trg))
         trg_std = float(np.std(scores_trg))
         nontrg_mean = float(np.std(scores_nontrg))
         nontrg_std = float(np.std(scores_nontrg))
+        spf_mean = float(np.mean(scores_spf))
+        spf_std = float(np.std(scores_spf))
 
         # exception for collect_stats.
         if len(scores) == 1:
-            reporter.register(stats=dict(eer=1.0, mindcf=1.0))
-            return
+            if task == "spk":
+                reporter.register(stats=dict(eer=1.0, mindcf=1.0))
+                return
+            elif task == "sasv":
+                reporter.register(stats=dict(min_a_dcf=1.0))
+                return
+        
+        if task == "spk":
+            # predictions, ground truth, and the false acceptance rates to calculate
+            results = tuneThresholdfromScore(scores, labels, [1, 0.1])
+            eer = results[1]
+            fnrs, fprs, thresholds = ComputeErrorRates(scores, labels)
 
-        # predictions, ground truth, and the false acceptance rates to calculate
-        results = tuneThresholdfromScore(scores, labels, [1, 0.1])
-        eer = results[1]
-        fnrs, fprs, thresholds = ComputeErrorRates(scores, labels)
+            # p_target, c_miss, and c_falsealarm in NIST minDCF calculation
+            p_trg, c_miss, c_fa = 0.05, 1, 1
+            mindcf, _ = ComputeMinDcf(fnrs, fprs, thresholds, p_trg, c_miss, c_fa)
 
-        # p_target, c_miss, and c_falsealarm in NIST minDCF calculation
-        p_trg, c_miss, c_fa = 0.05, 1, 1
-        mindcf, _ = ComputeMinDcf(fnrs, fprs, thresholds, p_trg, c_miss, c_fa)
+            reporter.register(
+                stats=dict(
+                    eer=eer,
+                    mindcf=mindcf,
+                    n_trials=n_trials,
+                    trg_mean=trg_mean,
+                    trg_std=trg_std,
+                    nontrg_mean=nontrg_mean,
+                    nontrg_std=nontrg_std,
+                )
+            )
+        
+        elif task == "sasv":
+            # write the scores to a file
+            with open(f"{options.output_dir}/scores.txt", "w") as f:
+                for (spk_id, test_utt, label), score in zip(trial_pairs, scores):
+                    f.write(f"{spk_id} {test_utt} {label} {score}\n")
 
-        reporter.register(
+            # calculate a-DCF
+            results_dict = calculate_a_dcf(sasv_score_txt=f"{options.output_dir}/scores.txt",
+                                           cost_model=SASVCostModel())
+            reporter.register(
             stats=dict(
-                eer=eer,
-                mindcf=mindcf,
+                min_a_dcf=results_dict["min_a_dcf"],
+                min_a_dcf_thresh=results_dict["min_a_dcf_thresh"],
                 n_trials=n_trials,
                 trg_mean=trg_mean,
                 trg_std=trg_std,
                 nontrg_mean=nontrg_mean,
                 nontrg_std=nontrg_std,
+                spf_mean=spf_mean,
+                spf_std=spf_std,
+                )
             )
-        )
 
         # added to reduce GRAM usage. May have minor speed boost when
         # this line is commented in case GRAM is not fully used.

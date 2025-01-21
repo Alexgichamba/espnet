@@ -81,10 +81,11 @@ optim_conf:
   weight_decay: 0.00005
   amsgrad: False
 
+num_iters_per_epoch: 10
 # Scheduler
 scheduler: CosineAnnealingWarmupRestarts
 scheduler_conf:
-  first_cycle_steps: 71280 # equal to 10 epochs
+  first_cycle_steps: 2139 # equal to 10 epochs
   cycle_mult: 1.0
   max_lr: 0.001
   min_lr: 0.000005
