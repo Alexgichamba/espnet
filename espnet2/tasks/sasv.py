@@ -24,9 +24,9 @@ from espnet2.spk.encoder.identity_encoder import IdentityEncoder
 from espnet2.spk.encoder.rawnet3_encoder import RawNet3Encoder
 from espnet2.spk.encoder.ska_tdnn_encoder import SkaTdnnEncoder
 from espnet2.spk.encoder.xvector_encoder import XvectorEncoder
-from espnet2.spk.espnet_model import ESPnetSpeakerModel
-from espnet2.spk.loss.aamsoftmax import AAMSoftmax
-from espnet2.spk.loss.aamsoftmax_subcenter_intertopk import (
+from espnet2.sasv.espnet_model import ESPnetSASVModel
+from espnet2.sasv.loss.aamsoftmax import AAMSoftmax
+from espnet2.sasv.loss.aamsoftmax_subcenter_intertopk import (
     ArcMarginProduct_intertopk_subcenter,
 )
 from espnet2.spk.pooling.abs_pooling import AbsPooling
@@ -202,7 +202,7 @@ class SASVTask(AbsTask):
             "--spk2utt",
             type=str,
             default="",
-            help="Directory of spk2utt file to be used in label mapping",
+            help="Path of spk2utt file to be used in label mapping",
         )
 
         group.add_argument(
@@ -210,6 +210,20 @@ class SASVTask(AbsTask):
             type=int,
             default=None,
             help="specify the number of speakers during training",
+        )
+
+        group.add_argument(
+            "--spf2utt",
+            type=str_or_none,
+            default=None,
+            help="Path of spf2utt file to be used in label mapping",
+        )
+
+        group.add_argument(
+            "--spf_num",
+            type=int,
+            default=None,
+            help="specify the number of spoofing classes during training",
         )
 
         group.add_argument(
@@ -237,7 +251,7 @@ class SASVTask(AbsTask):
         group.add_argument(
             "--model_conf",
             action=NestedDictAction,
-            default=get_default_kwargs(ESPnetSpeakerModel),
+            default=get_default_kwargs(ESPnetSASVModel),
             help="The keyword arguments for model class.",
         )
 
@@ -261,6 +275,7 @@ class SASVTask(AbsTask):
             if train:
                 retval = preprocessor_choices.get_class(args.preprocessor)(
                     spk2utt=args.spk2utt,
+                    spf2utt=args.spf2utt,
                     train=train,
                     **args.preprocessor_conf,
                 )
@@ -292,13 +307,13 @@ class SASVTask(AbsTask):
         # When calculating EER, we need trials where the spk_enroll contains
         # the speaker embedding utterances and the trial_label contains the
         # speakerID, test utterance and label.
-        retval = ("spk_enroll", "trial_label", "task_tokens")
+        retval = ("spk_enroll", "trial_label", "spk_labels", "task_tokens")
 
         return retval
 
     @classmethod
     @typechecked
-    def build_model(cls, args: argparse.Namespace) -> ESPnetSpeakerModel:
+    def build_model(cls, args: argparse.Namespace) -> ESPnetSASVModel:
 
         if args.frontend is not None:
             frontend_class = frontend_choices.get_class(args.frontend)
@@ -336,19 +351,49 @@ class SASVTask(AbsTask):
         )
         projector_output_size = projector.output_size()
 
-        loss_class = loss_choices.get_class(args.loss)
-        loss = loss_class(
-            nout=projector_output_size, nclasses=args.spk_num, **args.loss_conf
-        )
+        losses = []
+        loss_weights = []
+        loss_types = []
 
-        model = ESPnetSpeakerModel(
+        num_losses = len([loss for loss in args.loss if "name" in loss])
+
+        for i in range(num_losses):
+            loss_types.append(args.loss[i].get("type", "spk"))
+            loss_conf = args.loss[i].get("loss_conf", {})
+            loss_class = loss_choices.get_class(args.loss[i]["name"])
+
+            if loss_types[i] == "spk":
+                nclasses = args.spk_num
+            elif loss_types[i] == "spf":
+                nclasses = args.spf_num
+            else:
+                nclasses = None
+            if nclasses is not None:
+                loss = loss_class(
+                    nout=projector_output_size,
+                    nclasses=nclasses,
+                    **loss_conf,
+                )
+            else:  # mse has no classes
+                loss = loss_class(
+                    nout=projector_output_size,
+                    **loss_conf,
+                )
+            losses.append(loss)
+            loss_weights.append(float(args.loss[i].get("loss_weight", 1.0)))
+
+        print(f"building SASV model with {len(losses)} losses")
+
+        model = ESPnetSASVModel(
             frontend=frontend,
             specaug=specaug,
             normalize=normalize,
             encoder=encoder,
             pooling=pooling,
             projector=projector,
-            loss=loss,
+            losses=losses,
+            loss_weights=loss_weights,
+            loss_types=loss_types,
             # **args.model_conf, # uncomment when model_conf exists
         )
 

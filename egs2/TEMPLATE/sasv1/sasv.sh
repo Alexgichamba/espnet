@@ -564,6 +564,11 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
         jobname="${sasv_exp}/train.log"
     fi
 
+    # copy spk_enroll and trial_label to spk_exp under subdir trial_info
+    mkdir -p "${sasv_exp}/trial_info"
+    cp "${_sasv_valid_dir}/spk2enroll" "${sasv_exp}/trial_info"
+    cp "${_sasv_valid_dir}/trial_label" "${sasv_exp}/trial_info"
+
     ${python} -m espnet2.bin.launch \
         --cmd "${cuda_cmd} --name ${jobname}" \
         --log ${sasv_exp}/train.log \
@@ -582,8 +587,6 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
             --train_data_path_and_name_and_type ${_sasv_train_dir}/utt2spf,spf_labels,text \
             --train_shape_file ${sasv_stats_dir}/train/speech_shape \
             --valid_data_path_and_name_and_type ${_sasv_valid_dir}/wav.scp,speech,sound \
-            --valid_data_path_and_name_and_type ${_sasv_valid_dir}/trial_label,spk_labels,text \
-            --valid_data_path_and_name_and_type ${_sasv_valid_dir}/spk2enroll,spk_enroll,text \
             --spk2utt ${_sasv_train_dir}/spk2utt \
             --spf2utt ${_sasv_train_dir}/spf2utt \
             --spk_num $(wc -l ${_sasv_train_dir}/spk2utt | cut -f1 -d" ") \

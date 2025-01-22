@@ -25,7 +25,7 @@ def calculate_a_dcf(
 
     data = np.genfromtxt(sasv_score_txt, dtype=str, delimiter=" ")
     scores = data[:, 2].astype(np.float64)
-    keys = data[:, 3]
+    keys = data[:, 3].astype(np.int32)
 
     # Extract target: 0, nontarget: 1, and spoof: 2 scores from the ASV scores
     trg = scores[keys == 0]

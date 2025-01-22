@@ -22,6 +22,7 @@ from espnet2.train.reporter import SubReporter
 from espnet2.train.trainer import Trainer, TrainerOptions
 from espnet2.utils.eer import ComputeErrorRates, ComputeMinDcf, tuneThresholdfromScore
 from espnet2.utils.a_dcf import calculate_a_dcf
+from tqdm import tqdm
 
 if torch.distributed.is_available():
     from torch.distributed import ReduceOp
@@ -114,40 +115,27 @@ class SpkTrainer(Trainer):
         # processes, send stop-flag to the other processes if iterator is finished
         iterator_stop = torch.tensor(0).to("cuda" if ngpu > 0 else "cpu")
 
-        utt_id_list = []
-        speech_list = []
         task_token = None
 
-        for utt_id, batch in iterator:
-            bs = max(bs, len(utt_id))
+        for utt_id, batch in tqdm(iterator):
             if "task_tokens" in batch:
                 task_token = batch["task_tokens"][0]
             assert isinstance(batch, dict), type(batch)
-            utt_id_list.extend(utt_id)
-            speech_list.extend(batch["speech"])
-        
-        stacked_speech = torch.stack(speech_list, dim=0)
-        stacked_speech = to_device(stacked_speech, device)
+            speech_batch = to_device(batch["speech"], device)
+            org_shape = (speech_batch.size(0), speech_batch.size(1))
+            speech_batch = speech_batch.flatten(0, 1)
 
-        n_utt = len(utt_id_list)
-
-        # extract speaker embeddings.
-        for start in range(0, n_utt, bs):
-            end = start + bs
-            _utt_ids = utt_id_list[start:end]
-            _speechs = stacked_speech[start:end]
-            org_shape = (_speechs.size(0), _speechs.size(1))
-            _speechs = _speechs.flatten(0, 1)
-
-            if task_token is None:
-                task_tokens = None
-            else:
+            # Prepare task tokens if needed
+            if task_token is not None:
                 task_tokens = to_device(
-                    task_token.repeat(_speechs.size(0)), "cuda" if ngpu > 0 else "cpu"
+                    task_token.repeat(speech_batch.size(0)), 
+                    "cuda" if ngpu > 0 else "cpu"
                 ).unsqueeze(1)
+            else:
+                task_tokens = None
 
             spk_embds = model(
-                speech=_speechs,
+                speech=speech_batch,
                 spk_labels=None,
                 extract_embd=True,
                 task_tokens=task_tokens,
@@ -156,12 +144,12 @@ class SpkTrainer(Trainer):
             spk_embds = F.normalize(spk_embds, p=2, dim=1)
             spk_embds = spk_embds.view(org_shape[0], org_shape[1], -1)
 
-            for _utt_id, _spk_embd in zip(_utt_ids, spk_embds):
+            for _utt_id, _spk_embd in zip(utt_id, spk_embds):
                 utt_embed_dict[_utt_id] = _spk_embd
 
-        del utt_id_list
-        del speech_list
         torch.cuda.empty_cache()
+
+        print(f"{len(utt_embed_dict)} embeddings extracted")
 
         # make speaker embeddings by averaging utterance embeddings
         for spk_id, enroll_utts in spk_to_enroll_utts.items():
@@ -303,7 +291,7 @@ class SpkTrainer(Trainer):
             # write the scores to a file
             with open(f"{options.output_dir}/scores.txt", "w") as f:
                 for (spk_id, test_utt, label), score in zip(trial_pairs, scores):
-                    f.write(f"{spk_id} {test_utt} {label} {score}\n")
+                    f.write(f"{spk_id} {test_utt} {score} {label}\n")
 
             # calculate a-DCF
             results_dict = calculate_a_dcf(sasv_score_txt=f"{options.output_dir}/scores.txt",

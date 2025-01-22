@@ -1,6 +1,5 @@
 # SKA-TDNN reproduce recipe configuration.
-log_level: DEBUG
-log_interval: 10
+
 # Frontend
 frontend: melspec_torch
 frontend_conf:
@@ -45,13 +44,23 @@ model_conf:
   extract_feats_in_collect_stats: false
 
 # Loss
-loss: aamsoftmax_sc_topk
-loss_conf:
-  margin: 0.3
-  scale: 30
-  K: 3
-  mp: 0.06
-  k_top: 5
+loss:
+  - name: aamsoftmax_sc_topk  # spk loss
+    type: spk
+    loss_weight: 1
+    loss_conf:
+      margin: 0.3
+      scale: 30
+      K: 3
+      mp: 0.06
+      k_top: 5
+  - name: aamsoftmax  # spf loss
+    type: spf
+    loss_weight: 1
+    loss_conf:
+      margin: 0.5
+      scale: 30
+
 
 # Training related
 max_epoch: 40
@@ -60,18 +69,18 @@ num_workers: 4
 cudnn_deterministic: False
 cudnn_benchmark: True
 drop_last_iter: True
-iterator_type: category
+iterator_type: binary_task_category
 valid_iterator_type: sequence
 shuffle_within_batch: False
 log_interval: 100
 batch_size: 64
-valid_batch_size: 40
+valid_batch_size: 8
 use_amp: True
 keep_nbest_models: 3
 grad_clip: 9999
 best_model_criterion:
 - - valid
-  - eer
+  - a_dcf
   - min
 
 # Optimizer
@@ -81,13 +90,12 @@ optim_conf:
   weight_decay: 0.00005
   amsgrad: False
 
-num_iters_per_epoch: 10
 # Scheduler
 scheduler: CosineAnnealingWarmupRestarts
 scheduler_conf:
-  first_cycle_steps: 2139 # equal to 10 epochs
+  first_cycle_steps: 11740 # equal to 10 epochs
   cycle_mult: 1.0
   max_lr: 0.001
   min_lr: 0.000005
-  warmup_steps: 1000
+  warmup_steps: 500
   gamma: 0.75

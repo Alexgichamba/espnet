@@ -1,6 +1,5 @@
 # SKA-TDNN reproduce recipe configuration.
-log_level: DEBUG
-log_interval: 10
+
 # Frontend
 frontend: melspec_torch
 frontend_conf:

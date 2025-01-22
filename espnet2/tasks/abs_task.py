@@ -35,6 +35,12 @@ from espnet2.optimizers.optim_groups import configure_optimizer
 from espnet2.optimizers.sgd import SGD
 from espnet2.samplers.build_batch_sampler import BATCH_TYPES, build_batch_sampler
 from espnet2.samplers.category_balanced_sampler import CategoryBalancedSampler
+from espnet2.iterators.binary_task_category_iter_factory import (
+    BinaryTaskCategoryIterFactory,
+)
+from espnet2.samplers.binary_task_category_balanced_sampler import (
+    BinaryTaskCategoryBalancedSampler,
+)
 from espnet2.samplers.unsorted_batch_sampler import UnsortedBatchSampler
 from espnet2.schedulers.cosine_anneal_warmup_restart import (
     CosineAnnealingWarmupRestarts,
@@ -337,7 +343,7 @@ class AbsTask(ABC):
         group.add_argument(
             "--iterator_type",
             type=str,
-            choices=["sequence", "category", "chunk", "task", "none"],
+            choices=["sequence", "category", "binary_task_category", "chunk", "task", "none"],
             default="sequence",
             help="Specify iterator type",
         )
@@ -1724,6 +1730,12 @@ class AbsTask(ABC):
                 iter_options=iter_options,
                 mode=mode,
             )
+        elif iterator_type == "binary_task_category":
+            return cls.build_binary_task_category_iter_factory(
+                args=args,
+                iter_options=iter_options,
+                mode=mode,
+            )
         elif iterator_type == "chunk":
             return cls.build_chunk_iter_factory(
                 args=args,
@@ -1922,6 +1934,114 @@ class AbsTask(ABC):
             kwargs["num_iters_per_epoch"] = len(batches)
 
         return CategoryIterFactory(**kwargs)
+
+    @classmethod
+    @typechecked
+    def build_binary_task_category_iter_factory(
+        cls, args: argparse.Namespace, iter_options: IteratorOptions, mode: str
+    ) -> AbsIterFactory:
+
+        dataset = ESPnetDataset(
+            iter_options.data_path_and_name_and_type,
+            float_dtype=args.train_dtype,
+            preprocess=iter_options.preprocess_fn,
+            max_cache_size=iter_options.max_cache_size,
+            max_cache_fd=iter_options.max_cache_fd,
+            allow_multi_rates=iter_options.allow_multi_rates,
+        )
+        cls.check_task_requirements(
+            dataset, args.allow_variable_data_keys, train=iter_options.train
+        )
+        # check if category2utt file exists
+        if Path(
+            Path(iter_options.data_path_and_name_and_type[0][0]).parent, "category2utt"
+        ).exists():
+            category2utt_file = str(
+                Path(
+                    Path(iter_options.data_path_and_name_and_type[0][0]).parent,
+                    "category2utt",
+                )
+            )
+            logging.warning("Reading " + category2utt_file)
+        else:
+            category2utt_file = None
+            raise ValueError(
+                "category2utt mandatory for category iterator, but not found"
+            )
+        # check if spf2utt file exists
+        if Path(
+            Path(iter_options.data_path_and_name_and_type[0][0]).parent, "spf2utt"
+        ).exists():
+            spf2utt_file = str(
+                Path(
+                    Path(iter_options.data_path_and_name_and_type[0][0]).parent,
+                    "spf2utt",
+                )
+            )
+            logging.warning("Reading " + spf2utt_file)
+        else:
+            spf2utt_file = None
+            raise ValueError(
+                "spf2utt mandatory for binary_task_category iterator, but not found"
+            )
+
+        sampler_args = dict(
+            batch_size=iter_options.batch_size,
+            min_batch_size=(
+                torch.distributed.get_world_size() if iter_options.distributed else 1
+            ),
+            drop_last=args.drop_last_iter,
+            category2utt_file=category2utt_file,
+            spf2utt_file=spf2utt_file,
+            epoch=1,
+            num_batches=iter_options.num_batches,
+            distributed=iter_options.distributed,
+        )
+        batch_sampler = BinaryTaskCategoryBalancedSampler(**sampler_args)
+
+        batches = list(batch_sampler)
+
+        if iter_options.num_batches is not None:
+            batches = batches[: iter_options.num_batches]
+
+        bs_list = [len(batch) for batch in batches]
+
+        logging.info(f"[{mode}] dataset:\n{dataset}")
+        logging.info(f"[{mode}] Batch sampler: {batch_sampler}")
+        logging.info(
+            f"[{mode}] mini-batch sizes summary: N-batch={len(bs_list)}, "
+            f"mean={np.mean(bs_list):.1f}, min={np.min(bs_list)}, max={np.max(bs_list)}"
+        )
+
+        if iter_options.distributed:
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+            for batch in batches:
+                if len(batch) < world_size:
+                    raise RuntimeError(
+                        f"The batch-size must be equal or more than world_size: "
+                        f"{len(batch)} < {world_size}"
+                    )
+            batches = [batch[rank::world_size] for batch in batches]
+        
+        kwargs = dict(
+            dataset=dataset,
+            batches=batches,
+            seed=args.seed,
+            sampler_args=sampler_args,
+            shuffle=iter_options.train,
+            num_workers=args.num_workers,
+            collate_fn=iter_options.collate_fn,
+            pin_memory=args.ngpu > 0,
+        )
+
+        if iter_options.num_iters_per_epoch is not None:
+            kwargs["num_iters_per_epoch"] = iter_options.num_iters_per_epoch
+        else:
+            logging.warning(f"num_iters_per_epoch is not set. Setting to number of mini-batches {len(batches)}")
+            kwargs["num_iters_per_epoch"] = len(batches)
+
+        return BinaryTaskCategoryIterFactory(**kwargs)
 
     @classmethod
     @typechecked
