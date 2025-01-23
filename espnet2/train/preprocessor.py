@@ -1958,6 +1958,7 @@ class SpkPreprocessor(CommonPreprocessor):
         self.target_duration = int(target_duration * sample_rate)
         self.num_eval = num_eval
         self.task = "spk"
+        self.spf2utt = spf2utt
 
         if train:
             with open(spk2utt, "r") as f_s2u:

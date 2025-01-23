@@ -4,26 +4,28 @@ set -u
 set -o pipefail
 
 # Remember to update the following variables based on the stage
-mode=sasv
-audio_format=flac
-skip_spk_pretrain=true
+mode=spk
+audio_format=wav
+skip_spk_pretrain=false
 
 spk_config=conf/pretrain_SKATDNN_mel.yaml
 sasv_config=conf/train_SKATDNN_mel.yaml
 
-spk_train_set=voxceleb1_dev
+spk_train_set=voxceleb2_dev
 spk_valid_set=voxceleb1_test
 
 sasv_train_set=asvspoof5_train
 sasv_valid_set=asvspoof5_dev
-test_sets=asvspoof5_eval
+
+test_sets=voxceleb1_test
+
 eval_valid_set=true
 skip_train=false
 
 feats_type="raw" # or raw_copy
 
-ngpu=1
-nj=4
+ngpu=2
+nj=8
 speed_perturb_factors=
 inference_model=valid.a_dcf.best.pth
 

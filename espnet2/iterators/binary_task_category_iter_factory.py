@@ -9,8 +9,9 @@ from typeguard import typechecked
 
 from espnet2.iterators.abs_iter_factory import AbsIterFactory
 from espnet2.samplers.abs_sampler import AbsSampler
-from espnet2.samplers.category_balanced_sampler import CategoryBalancedSampler
-from espnet2.utils.types import int_or_none
+from espnet2.samplers.binary_task_category_balanced_sampler import (
+    BinaryTaskCategoryBalancedSampler,
+)
 
 
 def worker_init_fn(worker_id, base_seed=0):
@@ -34,15 +35,13 @@ class RawSampler(AbsSampler):
         return list(self.batches)
 
 
-class CategoryIterFactory(AbsIterFactory):
+class BinaryTaskCategoryIterFactory(AbsIterFactory):
     """Build iterator for each epoch.
-
     This class simply creates pytorch DataLoader except for the following points:
     - The random seed is decided according to the number of epochs. This feature
       guarantees reproducibility when resuming from middle of training process.
     - Enable to restrict the number of samples for one epoch. This features
       controls the interval number between training and evaluation.
-
     """
 
     @typechecked
@@ -50,7 +49,7 @@ class CategoryIterFactory(AbsIterFactory):
         self,
         dataset,
         batches: Union[AbsSampler, Sequence[Sequence[Any]]],
-        num_iters_per_epoch: int_or_none = None,
+        num_iters_per_epoch: int = None,
         seed: int = 0,
         sampler_args: dict = None,
         shuffle: bool = False,
@@ -81,7 +80,7 @@ class CategoryIterFactory(AbsIterFactory):
         # rebuild sampler
         if epoch > 1:
             self.sampler_args["epoch"] = epoch
-            batch_sampler = CategoryBalancedSampler(**self.sampler_args)
+            batch_sampler = BinaryTaskCategoryBalancedSampler(**self.sampler_args)
             batches = list(batch_sampler)
 
             if self.sampler_args["num_batches"] is not None:

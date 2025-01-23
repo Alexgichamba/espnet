@@ -273,12 +273,19 @@ class SASVTask(AbsTask):
     ) -> Optional[Callable[[str, Dict[str, np.array]], Dict[str, np.ndarray]]]:
         if args.use_preprocessor:
             if train:
-                retval = preprocessor_choices.get_class(args.preprocessor)(
-                    spk2utt=args.spk2utt,
-                    spf2utt=args.spf2utt,
-                    train=train,
-                    **args.preprocessor_conf,
-                )
+                if args.spf2utt is not None:
+                    retval = preprocessor_choices.get_class(args.preprocessor)(
+                        spk2utt=args.spk2utt,
+                        spf2utt=args.spf2utt,
+                        train=train,
+                        **args.preprocessor_conf,
+                    )
+                else:
+                    retval = preprocessor_choices.get_class(args.preprocessor)(
+                        spk2utt=args.spk2utt,
+                        train=train,
+                        **args.preprocessor_conf,
+                    )
             else:
                 retval = preprocessor_choices.get_class(args.preprocessor)(
                     train=train,

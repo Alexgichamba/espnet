@@ -63,8 +63,8 @@ iterator_type: category
 valid_iterator_type: sequence
 shuffle_within_batch: False
 log_interval: 100
-batch_size: 64
-valid_batch_size: 40
+batch_size: 256
+valid_batch_size: 64
 use_amp: True
 keep_nbest_models: 3
 grad_clip: 9999
@@ -80,11 +80,10 @@ optim_conf:
   weight_decay: 0.00005
   amsgrad: False
 
-num_iters_per_epoch: 10
 # Scheduler
 scheduler: CosineAnnealingWarmupRestarts
 scheduler_conf:
-  first_cycle_steps: 2139 # equal to 10 epochs
+  first_cycle_steps: 41160 # equal to 10 epochs
   cycle_mult: 1.0
   max_lr: 0.001
   min_lr: 0.000005
