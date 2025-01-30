@@ -149,6 +149,23 @@ class SpkTrainer(Trainer):
 
         torch.cuda.empty_cache()
 
+        # different gpus have different utterances in the dictionary
+        # so we need to gather all embeddings to all gpus
+        if distributed:
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+
+            # Prepare list to gather all dictionaries
+            all_utt_embed_dicts = [None] * world_size
+
+            # Gather dictionaries from all ranks
+            torch.distributed.all_gather_object(all_utt_embed_dicts, utt_embed_dict)
+
+            # Merge all gathered dictionaries
+            utt_embed_dict = {}
+            for d in all_utt_embed_dicts:
+                utt_embed_dict.update(d)
+
         print(f"{len(utt_embed_dict)} embeddings extracted")
 
         # make speaker embeddings by averaging utterance embeddings
@@ -178,6 +195,8 @@ class SpkTrainer(Trainer):
         
                 # Get test embedding and compute score
                 test_embd = utt_embed_dict[test_utt].unsqueeze(0)
+                current_spk_embd = current_spk_embd.to(device)
+                test_embd = test_embd.to(device)
                 score = torch.cdist(current_spk_embd, test_embd)
                 score = -1.0 * score.mean()
                 scores.append(score.view(1))
