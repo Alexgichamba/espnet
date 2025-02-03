@@ -1,5 +1,6 @@
 # SKA-TDNN reproduce recipe configuration.
 
+log_level: DEBUG
 # Frontend
 frontend: melspec_torch
 frontend_conf:
@@ -56,9 +57,9 @@ loss:
       k_top: 5
   - name: aamsoftmax  # spf loss
     type: spf
-    loss_weight: 1
+    loss_weight: 100
     loss_conf:
-      margin: 0.5
+      margin: 0.3
       scale: 30
 
 
@@ -74,7 +75,7 @@ valid_iterator_type: sequence
 shuffle_within_batch: False
 log_interval: 100
 batch_size: 128
-valid_batch_size: 32
+valid_batch_size: 64
 use_amp: True
 keep_nbest_models: 3
 grad_clip: 9999
@@ -93,9 +94,9 @@ optim_conf:
 # Schedulers
 scheduler: CosineAnnealingWarmupRestarts
 scheduler_conf:
-  first_cycle_steps: 84580 # equal to 10 epochs
+  first_cycle_steps: 5870 # equal to 10 epochs
   cycle_mult: 1.0
   max_lr: 0.001
   min_lr: 0.000005
-  warmup_steps: 1000
+  warmup_steps: 300
   gamma: 0.75
