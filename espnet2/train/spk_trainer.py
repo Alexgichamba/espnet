@@ -80,7 +80,7 @@ class SpkTrainer(Trainer):
                     continue
                 spk_id, enroll_utts = parts
                 spk_to_enroll_utts[spk_id] = enroll_utts.split(',')
-        print(f"Validating with {len(spk_to_enroll_utts)} enrolled speakers")
+
         # Read trial_label file
         trial_label_path = f"{trial_info_dir}/trial_label"
         with open(trial_label_path, 'r') as f:
@@ -92,7 +92,8 @@ class SpkTrainer(Trainer):
                 spk_id, test_utt = pair_str.split('*')
                 label = int(label)
                 trial_pairs.append((spk_id, test_utt, label))
-        print(f"Validating with {len(trial_pairs)} trials")
+    
+        print(f"Validating with {len(spk_to_enroll_utts)} enrolled speakers and {len(trial_pairs)} trials")
 
         # task (spk or sasv)
         task = None
@@ -191,15 +192,14 @@ class SpkTrainer(Trainer):
                 # Only get speaker embedding if speaker changes
                 if spk_id != current_spk:
                     current_spk = spk_id
-                    current_spk_embd = spk_embed_dict[spk_id].unsqueeze(0)
+                    current_spk_embd = spk_embed_dict[spk_id].unsqueeze(0).mean(dim=1)
         
                 # Get test embedding and compute score
-                test_embd = utt_embed_dict[test_utt].unsqueeze(0)
+                test_embd = utt_embed_dict[test_utt].unsqueeze(0).mean(dim=1)
                 current_spk_embd = current_spk_embd.to(device)
                 test_embd = test_embd.to(device)
-                score = torch.cdist(current_spk_embd, test_embd)
-                score = -1.0 * score.mean()
-                scores.append(score.view(1))
+                score = F.cosine_similarity(current_spk_embd, test_embd, dim=1)
+                scores.append(score)
                 labels.append(torch.tensor([label], device=device))
             
         except RuntimeError as e:
@@ -350,6 +350,9 @@ class SpkTrainer(Trainer):
         ngpu = options.ngpu
         distributed = distributed_option.distributed
 
+        trial_info_dir = options.output_dir + "/trial_info"
+        device = "cuda" if ngpu > 0 else "cpu"
+
         model.eval()
         utt_embed_dict = {}
 
@@ -357,10 +360,35 @@ class SpkTrainer(Trainer):
         # processes, send stop-flag to the other processes if iterator is finished
         # iterator_stop = torch.tensor(0).to("cuda" if ngpu > 0 else "cpu")
 
-        # fill dictionary with speech samples
-        utt_id_list = []
-        utt_id_whole_list = []
-        speech_list = []
+        # dicts for enrollment and trial info
+        spk_to_enroll_utts = {}  # {spkID: [utt_id1, utt_id2, ...]}
+        trial_pairs = []  # [(spkID, test_utt_id, label), ...]
+        spk_embed_dict = {}  # {spk_id: averaged_embedding}
+
+        # Read spk2enroll file
+        spk2enroll_path = f"{trial_info_dir}/spk2enroll"
+        with open(spk2enroll_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) != 2:
+                    continue
+                spk_id, enroll_utts = parts
+                spk_to_enroll_utts[spk_id] = enroll_utts.split(',')
+
+        # Read trial_label file
+        trial_label_path = f"{trial_info_dir}/trial_label"
+        with open(trial_label_path, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) != 2:
+                    continue
+                pair_str, label = parts
+                spk_id, test_utt = pair_str.split('*')
+                label = int(label)
+                trial_pairs.append((spk_id, test_utt, label))
+
+        print(f"Computing inference embeddings for {len(spk_to_enroll_utts)} enrolled speakers and {len(trial_pairs)} trials")
+
         task_token = None
         if distributed:
             rank = torch.distributed.get_rank()
@@ -369,125 +397,66 @@ class SpkTrainer(Trainer):
             rank = 0
             world_size = 1
         idx = 0
-        for utt_id, batch in iterator:
+        for utt_id, batch in tqdm(iterator):
             if "task_tokens" in batch:
                 task_token = batch["task_tokens"][0]
-
             assert isinstance(batch, dict), type(batch)
-            for _utt_id, _speech, _speech2 in zip(
-                utt_id, batch["speech"], batch["speech2"]
-            ):
-                _utt_id_1, _utt_id_2 = _utt_id.split("*")
-                if _utt_id_1 not in utt_id_whole_list:
-                    utt_id_whole_list.append(_utt_id_1)
-                    if idx % world_size == rank:
-                        utt_id_list.append(_utt_id_1)
-                        speech_list.append(_speech)
 
-                    if len(utt_id_list) == custom_bs:
-                        speech_list = torch.stack(speech_list, dim=0)
-                        org_shape = (speech_list.size(0), speech_list.size(1))
-                        speech_list = speech_list.flatten(0, 1)
-                        speech_list = to_device(
-                            speech_list, "cuda" if ngpu > 0 else "cpu"
-                        )
-                        if task_token is None:
-                            task_tokens = None
-                        else:
-                            task_tokens = to_device(
-                                task_token.repeat(speech_list.size(0)),
-                                "cuda" if ngpu > 0 else "cpu",
-                            ).unsqueeze(1)
-                        spk_embds = model(
-                            speech=speech_list,
-                            spk_labels=None,
-                            extract_embd=True,
-                            task_tokens=task_tokens,
-                        )
-                        # removed to be use magnitude in qmf
-                        # spk_embds = F.normalize(spk_embds, p=2, dim=1)
-                        spk_embds = spk_embds.view(org_shape[0], org_shape[1], -1)
+            speech_batch = to_device(batch["speech"], device)
+            org_shape = (speech_batch.size(0), speech_batch.size(1))
+            speech_batch = speech_batch.flatten(0, 1)
 
-                        for uid, _spk_embd in zip(utt_id_list, spk_embds):
-                            if average:
-                                utt_embed_dict[uid] = (
-                                    _spk_embd.mean(0).detach().cpu().numpy()
-                                )
-                            else:
-                                utt_embed_dict[uid] = _spk_embd.detach().cpu().numpy()
-
-                        utt_id_list = []
-                        speech_list = []
-
-                    idx += 1
-                if _utt_id_2 not in utt_id_whole_list:
-                    utt_id_whole_list.append(_utt_id_2)
-                    if idx % world_size == rank:
-                        utt_id_list.append(_utt_id_2)
-                        speech_list.append(_speech2)
-
-                    if len(utt_id_list) == custom_bs:
-                        speech_list = torch.stack(speech_list, dim=0)
-                        org_shape = (speech_list.size(0), speech_list.size(1))
-                        speech_list = speech_list.flatten(0, 1)
-                        speech_list = to_device(
-                            speech_list, "cuda" if ngpu > 0 else "cpu"
-                        )
-                        if task_token is None:
-                            task_tokens = None
-                        else:
-                            task_tokens = to_device(
-                                task_token.repeat(speech_list.size(0)),
-                                "cuda" if ngpu > 0 else "cpu",
-                            ).unsqueeze(1)
-                        spk_embds = model(
-                            speech=speech_list,
-                            spk_labels=None,
-                            extract_embd=True,
-                            task_tokens=task_tokens,
-                        )
-                        # removed to be use magnitude in qmf
-                        # spk_embds = F.normalize(spk_embds, p=2, dim=1)
-                        spk_embds = spk_embds.view(org_shape[0], org_shape[1], -1)
-
-                        for uid, _spk_embd in zip(utt_id_list, spk_embds):
-                            if average:
-                                utt_embed_dict[uid] = (
-                                    _spk_embd.mean(0).detach().cpu().numpy()
-                                )
-                            else:
-                                utt_embed_dict[uid] = _spk_embd.detach().cpu().numpy()
-
-                        utt_id_list = []
-                        speech_list = []
-
-                    idx += 1
-
-        if len(utt_id_list) != 0:
-            speech_list = torch.stack(speech_list, dim=0)
-            org_shape = (speech_list.size(0), speech_list.size(1))
-            speech_list = speech_list.flatten(0, 1)
-            speech_list = to_device(speech_list, "cuda" if ngpu > 0 else "cpu")
-            if task_token is None:
-                task_tokens = None
-            else:
+            # Prepare task tokens if needed
+            if task_token is not None:
                 task_tokens = to_device(
-                    task_token.repeat(speech_list.size(0)),
-                    "cuda" if ngpu > 0 else "cpu",
+                    task_token.repeat(speech_batch.size(0)), 
+                    "cuda" if ngpu > 0 else "cpu"
                 ).unsqueeze(1)
+            else:
+                task_tokens = None
+
             spk_embds = model(
-                speech=speech_list,
+                speech=speech_batch,
                 spk_labels=None,
                 extract_embd=True,
                 task_tokens=task_tokens,
             )
+
             spk_embds = F.normalize(spk_embds, p=2, dim=1)
             spk_embds = spk_embds.view(org_shape[0], org_shape[1], -1)
 
-            for uid, _spk_embd in zip(utt_id_list, spk_embds):
-                if average:
-                    utt_embed_dict[uid] = _spk_embd.mean(0).detach().cpu().numpy()
-                else:
-                    utt_embed_dict[uid] = _spk_embd.detach().cpu().numpy()
+            for _utt_id, _spk_embd in zip(utt_id, spk_embds):
+                utt_embed_dict[_utt_id] = _spk_embd
 
-        np.savez(output_dir + f"/embeddings{rank}", **utt_embed_dict)
+        torch.cuda.empty_cache()
+
+        # different gpus have different utterances in the dictionary
+        # so we need to gather all embeddings to all gpus
+        if distributed:
+            world_size = torch.distributed.get_world_size()
+            rank = torch.distributed.get_rank()
+
+            # Prepare list to gather all dictionaries
+            all_utt_embed_dicts = [None] * world_size
+
+            # Gather dictionaries from all ranks
+            torch.distributed.all_gather_object(all_utt_embed_dicts, utt_embed_dict)
+
+            # Merge all gathered dictionaries
+            utt_embed_dict = {}
+            for d in all_utt_embed_dicts:
+                utt_embed_dict.update(d)
+
+        print(f"{len(utt_embed_dict)} embeddings extracted")
+
+        # make speaker embeddings by averaging utterance embeddings
+        for spk_id, enroll_utts in spk_to_enroll_utts.items():
+            # Stack all enrollment embeddings for this speaker
+            enroll_embds = torch.stack([utt_embed_dict[utt] for utt in enroll_utts])
+            # Average them to get speaker embedding
+            utt_embed_dict[spk_id] = enroll_embds.mean(dim=0)
+
+        utt_embed_dict_cpu = {k: v.cpu().numpy() for k, v in utt_embed_dict.items()}
+        np.savez(output_dir + f"/embeddings{rank}", **utt_embed_dict_cpu)
+
+        torch.cuda.empty_cache()

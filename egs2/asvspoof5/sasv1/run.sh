@@ -8,9 +8,11 @@ mode=sasv
 audio_format=flac
 skip_spk_pretrain=true
 pretrained_model=10epoch.pth
+ignore_init_mismatch=true
 
 spk_config=conf/pretrain_SKATDNN_mel.yaml
-sasv_config=conf/train_SKATDNN_mel.yaml
+sasv_config=conf/bs64_train_SKATDNN_mel.yaml
+inference_config=conf/decode.yaml
 
 spk_train_set=voxceleb2_dev
 spk_valid_set=voxceleb1_test
@@ -28,7 +30,7 @@ feats_type="raw" # or raw_copy
 ngpu=1
 nj=8
 speed_perturb_factors=
-inference_model=valid.a_dcf.best.pth
+inference_model=valid.min_a_dcf.best.pth
 
 ./sasv.sh \
     --feats_type ${feats_type} \
@@ -48,4 +50,7 @@ inference_model=valid.a_dcf.best.pth
     --mode ${mode} \
     --audio_format ${audio_format} \
     --skip_spk_pretrain ${skip_spk_pretrain} \
+    --pretrained_model ${pretrained_model} \
+    --ignore_init_mismatch ${ignore_init_mismatch} \
+    --inference_config ${inference_config} \
     "$@"

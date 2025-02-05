@@ -74,7 +74,7 @@ iterator_type: binary_task_category
 valid_iterator_type: sequence
 shuffle_within_batch: False
 log_interval: 100
-batch_size: 128
+batch_size: 64
 valid_batch_size: 64
 use_amp: True
 keep_nbest_models: 3
@@ -94,7 +94,7 @@ optim_conf:
 # Schedulers
 scheduler: CosineAnnealingWarmupRestarts
 scheduler_conf:
-  first_cycle_steps: 5870 # equal to 10 epochs
+  first_cycle_steps: 11740 # equal to 10 epochs
   cycle_mult: 1.0
   max_lr: 1.0e-4
   min_lr: 1.0e-6

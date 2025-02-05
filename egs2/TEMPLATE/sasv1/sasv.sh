@@ -74,9 +74,10 @@ ignore_init_mismatch=false      # Ignore weights corresponding to mismatched key
 
 # Inference related
 inference_config=conf/decode.yaml       # Inference configuration
-inference_model=valid.a_dcf.best.pth    # Inference model weight file
+inference_model=valid.min_a_dcf.best.pth    # Inference model weight file
 score_norm=false                        # Apply score normalization in inference.
 qmf_func=false                          # Apply quality measurement based calibration in inference.
+use_pseudomos=false                     # Use pseudomos for post-scoring
 
 # [Task dependent] Set the datadir name created by local/data.sh
 spk_train_set=      # Name of speaker pretraining set.
@@ -631,65 +632,6 @@ if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
             --spk_train_config "${sasv_exp}/config.yaml" \
             --spk_model_file "${sasv_exp}"/${inference_model} \
             ${sasv_args}
-
-    # # extract embeddings for cohort set
-    # if [ "$score_norm" = true  ] || [ "$qmf_func" = true  ]; then
-    #     cohort_dir="${data_feats}/${cohort_set}"
-    #     if [ ! -e "${cohort_dir}/cohort.scp"  ]; then
-    #         log "Generating a new cohort set."
-    #         ${python} pyscripts/utils/generate_cohort_list.py ${cohort_dir}/spk2utt ${cohort_dir}/wav.scp ${cohort_dir} ${inference_config} ${fs}
-    #     fi
-    #     log "Extracting speaker embeddings for cohort... log: '${infer_exp}/spk_embed_extraction_cohort.log'"
-    #     ${python} -m espnet2.bin.launch \
-    #         --cmd "${cuda_cmd} --name ${jobname}" \
-    #         --log ${infer_exp}/spk_embed_extraction_cohort.log \
-    #         --ngpu ${ngpu} \
-    #         --num_nodes ${num_nodes} \
-    #         --init_file_prefix ${spk_exp}/.dist_init_ \
-    #         --multiprocessing_distributed true -- \
-    #         ${python} -m espnet2.bin.spk_embed_extract \
-    #             --use_preprocessor true \
-    #             --output_dir ${infer_exp} \
-    #             --data_path_and_name_and_type ${cohort_dir}/cohort.scp,speech,sound \
-    #             --data_path_and_name_and_type ${cohort_dir}/cohort2.scp,speech2,sound \
-    #             --data_path_and_name_and_type ${cohort_dir}/cohort_label,spk_labels,text \
-    #             --shape_file ${cohort_dir}/cohort_speech_shape \
-    #             --fold_length ${fold_length} \
-    #             --config ${inference_config} \
-    #             --spk_train_config "${spk_exp}/config.yaml" \
-    #             --spk_model_file "${spk_exp}"/${inference_model} \
-    #             --average_embd "true" \
-    #             ${spk_args}
-    # fi
-
-    # # extract embeddings for qmf train set
-    # if "$qmf_func"; then
-    #     cohort_dir="${data_feats}/${cohort_set}"
-    #     if [ ! -e "${cohort_dir}/qmf_train.scp"  ]; then
-    #         log "Generating a new QMF train set."
-    #         ${python} pyscripts/utils/generate_qmf_train_list.py ${cohort_dir}/spk2utt ${cohort_dir}/wav.scp ${cohort_dir} ${inference_config} ${cohort_dir}/utt2spk ${cohort_dir}/cohort_label ${fs}
-    #         mkdir ${infer_exp}/qmf
-    #     fi
-    #     ${python} -m espnet2.bin.launch \
-    #         --cmd "${cuda_cmd} --name ${jobname}" \
-    #         --log ${infer_exp}/spk_embed_extraction_qmf_train.log \
-    #         --ngpu ${ngpu} \
-    #         --num_nodes ${num_nodes} \
-    #         --init_file_prefix ${spk_exp}/.dist_init_ \
-    #         --multiprocessing_distributed true -- \
-    #         ${python} -m espnet2.bin.spk_embed_extract \
-    #             --use_preprocessor true \
-    #             --output_dir ${infer_exp}/qmf \
-    #             --data_path_and_name_and_type ${cohort_dir}/qmf_train.scp,speech,sound \
-    #             --data_path_and_name_and_type ${cohort_dir}/qmf_train2.scp,speech2,sound \
-    #             --data_path_and_name_and_type ${cohort_dir}/qmf_train_label,spk_labels,text \
-    #             --shape_file ${cohort_dir}/qmf_train_speech_shape \
-    #             --fold_length ${fold_length} \
-    #             --config ${inference_config} \
-    #             --spk_train_config "${spk_exp}/config.yaml" \
-    #             --spk_model_file "${spk_exp}"/${inference_model} \
-    #             ${spk_args}
-    # fi
 fi
 
 if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
@@ -700,33 +642,32 @@ if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
     cohort_dir="${data_feats}/${cohort_set}"
 
     log "Stage 8-a: get scores for the test set."
-    ${python} pyscripts/utils/spk_calculate_scores_from_embeddings.py ${infer_exp}/${test_sets}_embeddings.npz ${_inference_dir}/trial_label ${infer_exp}/${test_sets}_raw_trial_scores
+    ${python} pyscripts/utils/sasv_calculate_scores_from_embeddings.py  --embeddings ${infer_exp}/${test_sets}_embeddings.npz \
+                                                                        --trial_label ${_inference_dir}/trial_label \
+                                                                        ---output ${infer_exp}/${test_sets}_raw_trial_scores
     scorefile_cur=${infer_exp}/${test_sets}_raw_trial_scores
 
-    # if "$score_norm"; then
-    #     log "Stage 8-b: apply score normalization."
-    #     ${python} pyscripts/utils/spk_apply_score_norm.py ${scorefile_cur} ${infer_exp}/${test_sets}_embeddings.npz ${infer_exp}/${cohort_set}_embeddings.npz ${cohort_dir}/utt2spk ${infer_exp}/${test_sets}_scorenormed_scores ${inference_config} ${ngpu}
-    #     scorefile_cur=${infer_exp}/${test_sets}_scorenormed_scores
-    # fi
+    if "${use_pseudomos}"; then
+        log "Stage 8-b: apply MOS rule for rescoring accepts."
+        # first, compute pseudomos scores for the test set
+        if [ ! -d "${infer_exp}/pseudomos" ]; then
+            mkdir -p ${infer_exp}/pseudomos
+            ${python} pyscripts/utils/evaluate_pseudomos.py ${_inference_dir}/wav.scp \
+                                                            --outdir ${infer_exp}/pseudomos \
+                                                            --batch_size 4
 
-    # if "$qmf_func"; then
-    #     log "Stage 8-c: apply QMF calibration."
-    #     log "get raw scores for the qmf train set."
-    #     ${python} pyscripts/utils/spk_calculate_scores_from_embeddings.py ${infer_exp}/qmf/${train_set}_embeddings.npz ${cohort_dir}/qmf_train_label ${infer_exp}/qmf/${cohort_set}_raw_trial_scores
+        else
+            log "pseudomos dir already exists. Skip."
+        fi
 
-    #     if "$score_norm"; then
-    #         log "normalize qmf train set scores."
-    #         ${python} pyscripts/utils/spk_apply_score_norm.py ${infer_exp}/qmf/${cohort_set}_raw_trial_scores ${infer_exp}/qmf/${cohort_set}_embeddings.npz ${infer_exp}/${cohort_set}_embeddings.npz ${cohort_dir}/utt2spk ${infer_exp}/qmf/${cohort_set}_scorenormed_scores ${inference_config} ${ngpu}
-    #         qmf_train_scores=${infer_exp}/qmf/${cohort_set}_scorenormed_scores
-    #         test_scores=${infer_exp}/${test_sets}_scorenormed_scores
-    #     else
-    #         qmf_train_scores=${infer_exp}/qmf/${cohort_set}_raw_trial_scores
-    #         test_scores=${infer_exp}/${test_sets}_raw_trial_scores
-    #     fi
+        # second, apply MOS rule for rescoring accepts
+        pmos_file=${infer_exp}/pseudomos/utt2pmos
+        scorefile_proc=${infer_exp}/${test_sets}_processed_scores
 
-    #     log "Apply qmf function."
-    #     ${python} pyscripts/utils/spk_apply_qmf_func.py ${cohort_dir}/qmf_train.scp ${cohort_dir}/qmf_train2.scp ${qmf_train_scores} ${infer_exp}/qmf/${cohort_set}_embeddings.npz ${_inference_dir}/trial.scp ${_inference_dir}/trial2.scp ${test_scores} ${infer_exp}/${test_sets}_embeddings.npz ${infer_exp}/qmf/${test_sets}_qmf_scores
-    # fi
+        ${python} pyscripts/utils/sasv_pseudomos_rescore.py --input_scorefile ${scorefile_cur} \
+                                                            --utt2pmos ${pmos_file} \
+                                                            --output_scorefile ${scorefile_proc}
+    fi
 
 fi
 
@@ -735,22 +676,15 @@ if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
     infer_exp="${sasv_exp}/inference"
     _inference_dir=${data_feats}/${test_sets}
 
-    if "$score_norm"; then
-        if "$qmf_func"; then
-            score_dir=${infer_exp}/qmf/${test_sets}_qmf_scores
-        else
-            score_dir=${infer_exp}/${test_sets}_scorenormed_scores
-        fi
+    if "${use_pseudomos}"; then
+        score_dir=${infer_exp}/${test_sets}_processed_scores
     else
-        if "$qmf_func"; then
-            score_dir=${infer_exp}/qmf/${test_sets}_qmf_scores
-        else
-            score_dir=${infer_exp}/${test_sets}_raw_trial_scores
-        fi
+        score_dir=${infer_exp}/${test_sets}_raw_trial_scores
     fi
 
     log "calculate score with ${score_dir}"
-    ${python} pyscripts/utils/calculate_eer_mindcf.py ${score_dir} ${infer_exp}/${test_sets}_metrics
+    ${python} pyscripts/utils/calculate_adcf.py --scorefile ${score_dir} \
+                                                --out_dir ${infer_exp}/${test_sets}_metrics
 
     # Show results in Markdown syntax
     ${python} scripts/utils/show_spk_result.py "${infer_exp}/${test_sets}_metrics" "${sasv_exp}"/RESULTS.md $(echo ${sasv_config} | cut -d'.' -f1)
