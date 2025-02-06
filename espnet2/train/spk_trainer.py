@@ -345,7 +345,6 @@ class SpkTrainer(Trainer):
         distributed_option: DistributedOption,
         output_dir: str,
         custom_bs: int,
-        average: bool = False,
     ) -> None:
         ngpu = options.ngpu
         distributed = distributed_option.distributed

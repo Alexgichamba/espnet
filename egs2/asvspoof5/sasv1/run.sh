@@ -14,13 +14,15 @@ spk_config=conf/pretrain_SKATDNN_mel.yaml
 sasv_config=conf/bs64_train_SKATDNN_mel.yaml
 inference_config=conf/decode.yaml
 
+inference_model=../../9epoch.pth
+
 spk_train_set=voxceleb2_dev
 spk_valid_set=voxceleb1_test
 
 sasv_train_set=asvspoof5_train
 sasv_valid_set=asvspoof5_dev
 
-test_sets=asvspoof5_eval
+test_sets=asvspoof5_dev
 
 eval_valid_set=true
 skip_train=false
@@ -28,9 +30,8 @@ skip_train=false
 feats_type="raw" # or raw_copy
 
 ngpu=1
-nj=8
+nj=4
 speed_perturb_factors=
-inference_model=valid.min_a_dcf.best.pth
 
 ./sasv.sh \
     --feats_type ${feats_type} \
@@ -53,4 +54,5 @@ inference_model=valid.min_a_dcf.best.pth
     --pretrained_model ${pretrained_model} \
     --ignore_init_mismatch ${ignore_init_mismatch} \
     --inference_config ${inference_config} \
+    --inference_model ${inference_model} \
     "$@"

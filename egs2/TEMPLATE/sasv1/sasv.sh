@@ -74,7 +74,7 @@ ignore_init_mismatch=false      # Ignore weights corresponding to mismatched key
 
 # Inference related
 inference_config=conf/decode.yaml       # Inference configuration
-inference_model=valid.min_a_dcf.best.pth    # Inference model weight file
+inference_model=                        # Inference model weight file
 score_norm=false                        # Apply score normalization in inference.
 qmf_func=false                          # Apply quality measurement based calibration in inference.
 use_pseudomos=false                     # Use pseudomos for post-scoring
@@ -434,9 +434,11 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
         _exp="${sasv_exp}"
         _config="${sasv_config}"
     fi
+    _test_sets="${test_sets}"
 
     _train_dir="${data_feats}/${_train_set}"
     _valid_dir="${data_feats}/${_valid_set}"
+    _test_dir="${data_feats}/${_test_sets}"
 
     if [ -n "${_config}"  ]; then
         # To generate the config file: e.g.
@@ -492,6 +494,14 @@ if [ ${stage} -le 4 ] && [ ${stop_stage} -ge 4 ]; then
     done
     # shellcheck disable=SC2086
     ${python} -m espnet2.bin.aggregate_stats_dirs ${_opts} --skip_sum_stats --output_dir "${_stats_dir}"
+
+    # Compute stats for the test set
+    mkdir "${_stats_dir}/test"
+    log "Computing stats for the test set"
+    ${python} pyscripts/utils/spk_calculate_test_shape.py   --wav_scp "${_test_dir}/wav.scp" \
+                                                            --output_dir "${_stats_dir}/test" \
+                                                            --fs "${fs}" \
+                                                            --nj "${nj}" \
 
 fi
 
@@ -612,6 +622,11 @@ if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
         jobname="${infer_exp}/sasv_embed_extraction.log"
     fi
 
+    # copy spk_enroll and trial_label to spk_exp under subdir trial_info
+    mkdir -p "${infer_exp}/trial_info"
+    cp "${_inference_dir}/spk2enroll" "${infer_exp}/trial_info"
+    cp "${_inference_dir}/trial_label" "${infer_exp}/trial_info"
+
     log "Extracting speaker embeddings for inference... log: '${infer_exp}/sasv_embed_extraction_test.log'"
     ${python} -m espnet2.bin.launch \
         --cmd "${cuda_cmd} --name ${jobname}" \
@@ -620,18 +635,16 @@ if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
         --num_nodes ${num_nodes} \
         --init_file_prefix ${sasv_exp}/.dist_init_ \
         --multiprocessing_distributed true -- \
-        ${python} -m espnet2.bin.spk_embed_extract \
+        ${python} -m espnet2.bin.sasv_embed_extract \
             --use_preprocessor true \
             --output_dir ${infer_exp} \
             --data_path_and_name_and_type ${_inference_dir}/wav.scp,speech,sound \
-            --data_path_and_name_and_type ${_inference_dir}/spk2enroll,spk_enroll,text \
-            --data_path_and_name_and_type ${_inference_dir}/trial_label,spk_labels,text \
             --shape_file ${sasv_stats_dir}/test/speech_shape \
             --fold_length ${fold_length} \
             --config ${inference_config} \
             --spk_train_config "${sasv_exp}/config.yaml" \
             --spk_model_file "${sasv_exp}"/${inference_model} \
-            ${sasv_args}
+            # ${sasv_args}
 fi
 
 if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
@@ -641,10 +654,17 @@ if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
     _inference_dir=${data_feats}/${test_sets}
     cohort_dir="${data_feats}/${cohort_set}"
 
+    if [ ${ngpu} -gt 0 ]; then
+        _device="cuda"
+    else
+        _device="cpu"
+    fi
+
     log "Stage 8-a: get scores for the test set."
     ${python} pyscripts/utils/sasv_calculate_scores_from_embeddings.py  --embeddings ${infer_exp}/${test_sets}_embeddings.npz \
                                                                         --trial_label ${_inference_dir}/trial_label \
-                                                                        ---output ${infer_exp}/${test_sets}_raw_trial_scores
+                                                                        --output ${infer_exp}/${test_sets}_raw_trial_scores \
+                                                                        --device ${_device}
     scorefile_cur=${infer_exp}/${test_sets}_raw_trial_scores
 
     if "${use_pseudomos}"; then
@@ -687,7 +707,7 @@ if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
                                                 --out_dir ${infer_exp}/${test_sets}_metrics
 
     # Show results in Markdown syntax
-    ${python} scripts/utils/show_spk_result.py "${infer_exp}/${test_sets}_metrics" "${sasv_exp}"/RESULTS.md $(echo ${sasv_config} | cut -d'.' -f1)
+    ${python} pyscripts/utils/show_sasv_result.py "${infer_exp}/${test_sets}_metrics" "${sasv_exp}"/RESULTS.md $(echo ${sasv_config} | cut -d'.' -f1)
     cat "${sasv_exp}"/RESULTS.md
 fi
 

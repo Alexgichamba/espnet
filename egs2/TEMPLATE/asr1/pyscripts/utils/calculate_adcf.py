@@ -76,4 +76,4 @@ def parse_arguments():
 
 if __name__ == "__main__":
     args = parse_arguments()
-    main([args.scorefile, args.out_dir])
+    main(args.scorefile, args.out_dir)
