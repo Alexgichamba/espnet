@@ -652,6 +652,7 @@ if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
 
     infer_exp="${sasv_exp}/inference"
     _inference_dir=${data_feats}/${test_sets}
+    _dev_dir=${data_feats}/${sasv_valid_set}
     cohort_dir="${data_feats}/${cohort_set}"
 
     if [ ${ngpu} -gt 0 ]; then
@@ -669,24 +670,31 @@ if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
 
     if "${use_pseudomos}"; then
         log "Stage 8-b: apply MOS rule for rescoring accepts."
-        # first, compute pseudomos scores for the test set
-        if [ ! -d "${infer_exp}/pseudomos" ]; then
-            mkdir -p ${infer_exp}/pseudomos
-            ${python} pyscripts/utils/evaluate_pseudomos.py ${_inference_dir}/wav.scp \
-                                                            --outdir ${infer_exp}/pseudomos \
-                                                            --batch_size 4
-
+        if [ ! -d "${infer_exp}/pmos" ]; then
+            mkdir -p "${infer_exp}/pmos"
+            # first, compute pmos scores
+            for x in ${sasv_valid_set} ${test_sets}; do
+                mkdir -p "${infer_exp}/pmos/${x}"
+                ${python} pyscripts/utils/evaluate_pmos.py ${_inference_dir}/wav.scp \
+                                                                --outdir ${infer_exp}/pmos \
+                                                                --batch_size 4
+            done
         else
-            log "pseudomos dir already exists. Skip."
+            log "pmos scores already computed."
         fi
 
         # second, apply MOS rule for rescoring accepts
-        pmos_file=${infer_exp}/pseudomos/utt2pmos
-        scorefile_proc=${infer_exp}/${test_sets}_processed_scores
+        pmos_valid_file=${infer_exp}/pmos/${sasv_valid_set}/utt2pmos
+        pmos_test_file=${infer_exp}/pmos/${test_sets}/utt2pmos
+        scorefile_valid=${infer_exp}/${sasv_valid_set}_raw_trial_scores
+        scorefile_test=${infer_exp}/${test_sets}_raw_trial_scores
+        scorefile_proc=${infer_exp}/${test_sets}_postprocessed_scores
 
-        ${python} pyscripts/utils/sasv_pseudomos_rescore.py --input_scorefile ${scorefile_cur} \
-                                                            --utt2pmos ${pmos_file} \
-                                                            --output_scorefile ${scorefile_proc}
+        ${python} pyscripts/utils/sasv_pseudomos_rescore.py --valid_scorefile ${scorefile_valid} \
+                                                            --test_scorefile ${scorefile_test} \
+                                                            --valid_pseudomos ${pmos_valid_file} \
+                                                            --test_pseudomos ${pmos_test_file} \
+                                                            --output_dir ${infer_exp}
     fi
 
 fi

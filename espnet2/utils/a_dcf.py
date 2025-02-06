@@ -10,11 +10,11 @@ import numpy as np
 class CostModel:
     "Class describing SASV-DCF's relevant costs"
     Pspf: float = 0.05
-    Pnontrg: float = 0.05
-    Ptrg: float = 0.9
+    Pnontrg: float = 0.0095
+    Ptrg: float = 0.9405
     Cmiss: float = 1
     Cfa_asv: float = 10
-    Cfa_cm: float = 20
+    Cfa_cm: float = 10
 
 
 def calculate_a_dcf(

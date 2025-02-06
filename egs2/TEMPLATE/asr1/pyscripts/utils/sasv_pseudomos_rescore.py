@@ -12,19 +12,23 @@ from espnet2.utils.a_dcf import calculate_a_dcf
 
 @dataclass
 class SASVCostModel:
+    "Class describing SASV-DCF's relevant costs"
     Pspf: float = 0.05
-    Pnontrg: float = 0.05
-    Ptrg: float = 0.9
+    Pnontrg: float = 0.0095
+    Ptrg: float = 0.9405
     Cmiss: float = 1
     Cfa_asv: float = 10
-    Cfa_cm: float = 20
+    Cfa_cm: float = 10
 
 class MOSAnalyzer:
-    def __init__(self, mos_file: str):
-        self.mos_scores = self._load_mos_scores(mos_file)
-        self.mos_values = np.array(list(self.mos_scores.values()))
-        self.gmm = self._fit_gmm(self.mos_values)
+    def __init__(self, valid_mos_file: str, test_mos_file: str):
+        self.valid_mos_scores = self._load_mos_scores(valid_mos_file)
+        self.valid_mos_values = np.array(list(self.valid_mos_scores.values()))
+        self.gmm = self._fit_gmm(self.valid_mos_values)
         self.threshold = self._find_threshold()
+
+        self.test_mos_scores = self._load_mos_scores(test_mos_file)
+        self.test_mos_values = np.array(list(self.test_mos_scores.values()))
         self.low_mos_uttids = self._get_low_mos_uttids()
 
     def _load_mos_scores(self, mos_file: str) -> Dict[str, float]:
@@ -60,14 +64,14 @@ class MOSAnalyzer:
 
     def _get_low_mos_uttids(self) -> List[str]:
         """Get list of utterance IDs with MOS scores below threshold"""
-        return [uttid for uttid, score in self.mos_scores.items() if score < 1.2*self.threshold]
+        return [uttid for uttid, score in self.test_mos_scores.items() if score < self.threshold]
 
     def plot_distribution(self, output_plot_file: str):
         """Plot MOS score distribution with GMM components"""
         plt.figure(figsize=(10, 6))
-        plt.hist(self.mos_values, bins=30, alpha=0.7, color='blue', label='MOS Scores', density=True)
+        plt.hist(self.valid_mos_values, bins=30, alpha=0.7, color='blue', label='MOS Scores', density=True)
 
-        x = np.linspace(min(self.mos_values), max(self.mos_values), 1000)
+        x = np.linspace(min(self.valid_mos_values), max(self.valid_mos_values), 1000)
         logprob = self.gmm.score_samples(x.reshape(-1, 1))
         pdf = np.exp(logprob)
         plt.plot(x, pdf, '-r', label='Gaussian Mixture Model')
@@ -91,20 +95,26 @@ class MOSAnalyzer:
         plt.close()
 
 class ScoreProcessor:
-    def __init__(self, input_file: str):
-        self.data = np.genfromtxt(input_file, dtype=str, delimiter=" ")
+    def __init__(self, test_file: str, valid_file: str):
+        self.test_data = np.genfromtxt(test_file, dtype=str, delimiter=" ")
+        self.valid_data = np.genfromtxt(valid_file, dtype=str, delimiter=" ")
         # file is of format: spk utt score key
-        self.identifiers = np.char.add(self.data[:, 0], np.char.add('*', self.data[:, 1]))
-        self.scores = self.data[:, 2].astype(np.float64)
-        self.keys = self.data[:, 3].astype(np.int32)
-        self.uttids = self.data[:, 1]
+        self.test_identifiers = np.char.add(self.test_data[:, 0], np.char.add('*', self.test_data[:, 1]))
+        self.test_uttids = self.test_data[:, 1]
+
+        self.test_scores = self.test_data[:, 2].astype(np.float64)
+        self.valid_scores = self.valid_data[:, 2].astype(np.float64)
+
+        self.test_keys = self.test_data[:, 3].astype(np.int32)
+        self.valid_keys = self.valid_data[:, 3].astype(np.int32)
+        
         self.means = self._compute_means()
 
     def _compute_means(self) -> Tuple[float, float, float]:
         """Compute mean scores for target, non-target, and spoof categories"""
-        trg_scores = self.scores[self.keys == 0]
-        nontrg_scores = self.scores[self.keys == 1]
-        spf_scores = self.scores[self.keys == 2]
+        trg_scores = self.valid_scores[self.valid_keys    == 0]
+        nontrg_scores = self.valid_scores[self.valid_keys == 1]
+        spf_scores = self.valid_scores[self.valid_keys    == 2]
         return (trg_scores.mean(), nontrg_scores.mean(), spf_scores.mean())
 
     def rescore_trials(self, low_mos_uttids: List[str], threshold: float) -> List[Tuple]:
@@ -114,7 +124,7 @@ class ScoreProcessor:
         rescored_data = []
         num_rescored = 0
 
-        for i, (uttid, identifier, score, key) in enumerate(zip(self.uttids, self.identifiers, self.scores, self.keys)):
+        for i, (uttid, identifier, score, key) in enumerate(zip(self.test_uttids, self.test_identifiers, self.test_scores, self.test_keys)):
             if score >= threshold and uttid.strip() in low_mos_uttids:
                 new_score = score - adjustment
                 rescored_data.append((identifier, new_score, key))
@@ -134,24 +144,25 @@ def save_scores(rescored_data: List[Tuple], output_file: str):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='SASV Score Processing with MOS Analysis')
-    parser.add_argument('--scores', required=True, 
-                      help='Input file containing trial scores')
-    parser.add_argument('--mos-file', required=True,
-                      help='File containing MOS scores')
-    parser.add_argument('--output-dir', required=True,
-                      help='Directory for output files')
+    parser.add_argument('--valid_scorefile', required=True, 
+                      help='Input file containing trial scores for the validation set')
+    parser.add_argument('--test_scorefile', required=True,
+                        help='Input file containing trial scores for the test set')
+    parser.add_argument('--valid_pseudomos', required=True,
+                      help='File containing MOS scores for the validation set')
+    parser.add_argument('--test_pseudomos', required=True,
+                        help='File containing MOS scores for the test set')
+    parser.add_argument('--output_dir', required=True,
+                      help='Path to save the rescored trial scores for the test set')
     return parser.parse_args()
 
 def main():
     args = parse_args()
     
-    # Create output directory if it doesn't exist
-    os.makedirs(args.output_dir, exist_ok=True)
-    
     # Initialize MOS analyzer
-    mos_analyzer = MOSAnalyzer(args.mos_file)
-    print(f"Threshold between distributions: {mos_analyzer.threshold:.2f}")
-    print(f"Number of utterances with MOS score below threshold: {len(mos_analyzer.low_mos_uttids)}")
+    mos_analyzer = MOSAnalyzer(args.valid_pseudomos, args.test_pseudomos)
+    print(f"Threshold between distributions for validation: {mos_analyzer.threshold:.2f}")
+    print(f"Number of utterances with MOS score below threshold in the test set: {len(mos_analyzer.low_mos_uttids)}")
     
     # Plot MOS distribution
     plot_path = os.path.join(args.output_dir, 'mos_distribution.png')
@@ -159,21 +170,18 @@ def main():
     print(f"Plot saved to {plot_path}")
 
     # Compute initial a-DCF
-    adcf_results = calculate_a_dcf(args.scores, cost_model=SASVCostModel())
-    print(f"Initial a-DCF: {adcf_results['min_a_dcf']:.5f}, "
-          f"with threshold: {adcf_results['min_a_dcf_thresh']:.5f}")
+    adcf_results = calculate_a_dcf(args.valid_scorefile, cost_model=SASVCostModel())
+    print(f"Valid a-DCF: {adcf_results['min_a_dcf']:.5f}, "
+          f"with valid threshold: {adcf_results['min_a_dcf_thresh']:.5f}")
     accept_threshold = adcf_results['min_a_dcf_thresh']
     
     # Process scores
-    processor = ScoreProcessor(args.scores)
-    trg_mean, nontrg_mean, spf_mean = processor.means
-    print(f"Target mean: {trg_mean:.2f}, Non-target mean: {nontrg_mean:.2f}, "
-          f"Spoof mean: {spf_mean:.2f}")
+    processor = ScoreProcessor(args.test_scorefile, args.valid_scorefile)
     
     # Rescore trials and save results
     rescored_data = processor.rescore_trials(mos_analyzer.low_mos_uttids, 
                                            threshold=accept_threshold)
-    output_file = os.path.join(args.output_dir, 'rescored_trials.txt')
+    output_file = os.path.join(args.output_dir, 'mos_rescored_trials.txt')
     save_scores(rescored_data, output_file)
     print(f"Rescored file saved to {output_file}")
     

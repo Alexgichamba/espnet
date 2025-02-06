@@ -8,17 +8,30 @@ import torch.nn.functional as F
 import argparse
 
 
-def load_embeddings(embd_dir: str, device: str):
-    print(f"Loading embeddings from {embd_dir}")
-    embd_dic = OrderedDict(np.load(embd_dir))
+def load_embeddings(embd_dir: str, device: str, batch_size=64):
+    embd_dic = np.load(embd_dir)
+    
     embd_dic2 = {}
-    for k, v in tqdm(embd_dic.items(), desc="Reading and normalizing embeddings..."):
-        if len(v.shape) == 1:
-            v = v[None, :]
-        embd_dic2[k] = torch.nn.functional.normalize(
-            torch.from_numpy(v), p=2, dim=1
+    keys = list(embd_dic.keys())
+    
+    for i in tqdm(range(0, len(keys), batch_size), desc=f"Loading embeddings from {embd_dir}"):
+        batch_keys = keys[i:i+batch_size]
+        batch_values = [embd_dic[k] for k in batch_keys]
+        
+        # Reshape if needed
+        batch_values = [v[None, :] if len(v.shape) == 1 else v for v in batch_values]
+        
+        # Batch convert to tensor and normalize
+        batch_tensors = torch.nn.functional.normalize(
+            torch.from_numpy(np.stack(batch_values)), 
+            p=2, 
+            dim=1
         ).to(device)
-
+        
+        # Add to dictionary
+        for k, tensor in zip(batch_keys, batch_tensors):
+            embd_dic2[k] = tensor
+    
     return embd_dic2
 
 

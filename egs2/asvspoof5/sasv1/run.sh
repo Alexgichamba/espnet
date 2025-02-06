@@ -15,6 +15,7 @@ sasv_config=conf/bs64_train_SKATDNN_mel.yaml
 inference_config=conf/decode.yaml
 
 inference_model=../../9epoch.pth
+use_pseudomos=true
 
 spk_train_set=voxceleb2_dev
 spk_valid_set=voxceleb1_test
@@ -55,4 +56,5 @@ speed_perturb_factors=
     --ignore_init_mismatch ${ignore_init_mismatch} \
     --inference_config ${inference_config} \
     --inference_model ${inference_model} \
+    --use_pseudomos ${use_pseudomos} \
     "$@"
