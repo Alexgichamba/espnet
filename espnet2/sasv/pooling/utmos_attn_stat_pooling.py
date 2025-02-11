@@ -7,12 +7,6 @@ from espnet2.spk.pooling.abs_pooling import AbsPooling
 class UTMOSAttnStatPooling(AbsPooling):
     """Aggregates frame-level features to single utterance-level feature using attention weights for
     the weighted sum of the frame-level features.
-
-    args:
-        input_size: dimensionality of the input frame-level embeddings.
-            Determined by encoder hyperparameter.
-            For this pooling layer, the output dimensionality will be double of
-            the input_size
     """
 
     def __init__(self, input_size: int = 1536, feat_dim: int = 2048, seq_len: int = 151 ):
