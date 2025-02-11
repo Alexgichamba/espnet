@@ -1,5 +1,5 @@
 import argparse
-from typing import Callable, Collection, Dict, List, Optional, Tuple
+from typing import Callable, Collection, Dict, List, Optional, Tuple, Literal
 
 import numpy as np
 import torch
@@ -33,10 +33,12 @@ from espnet2.spk.pooling.abs_pooling import AbsPooling
 from espnet2.spk.pooling.chn_attn_stat_pooling import ChnAttnStatPooling
 from espnet2.spk.pooling.mean_pooling import MeanPooling
 from espnet2.spk.pooling.stat_pooling import StatsPooling
+from espnet2.sasv.pooling.utmos_attn_stat_pooling import UTMOSAttnStatPooling
 from espnet2.spk.projector.abs_projector import AbsProjector
 from espnet2.spk.projector.rawnet3_projector import RawNet3Projector
 from espnet2.spk.projector.ska_tdnn_projector import SkaTdnnProjector
 from espnet2.spk.projector.xvector_projector import XvectorProjector
+from espnet2.sasv.projector.ska_tdnn_utmos_projector import SkaTdnnUTMOSProjector
 from espnet2.tasks.abs_task import AbsTask
 from espnet2.torch_utils.initialize import initialize
 from espnet2.train.class_choices import ClassChoices
@@ -106,6 +108,7 @@ pooling_choices = ClassChoices(
         chn_attn_stat=ChnAttnStatPooling,
         mean=MeanPooling,
         stats=StatsPooling,
+        utmos_attn_stat=UTMOSAttnStatPooling,
     ),
     type_check=AbsPooling,
     default="chn_attn_stat",
@@ -117,6 +120,7 @@ projector_choices = ClassChoices(
         rawnet3=RawNet3Projector,
         ska_tdnn=SkaTdnnProjector,
         xvector=XvectorProjector,
+        ska_tdnn_utmos=SkaTdnnUTMOSProjector,
     ),
     type_check=AbsProjector,
     default="rawnet3",
@@ -255,6 +259,14 @@ class SASVTask(AbsTask):
             help="The keyword arguments for model class.",
         )
 
+        group.add_argument(
+            "--feat_fusion_stage",
+            type=str,
+            choices=["encoder", "pooling", "projector"],
+            default=None,
+            help="The stage to fuse the precomputed features",
+        )
+
         for class_choices in cls.class_choices_list:
             class_choices.add_arguments(group)
 
@@ -314,7 +326,7 @@ class SASVTask(AbsTask):
         # When calculating EER, we need trials where the spk_enroll contains
         # the speaker embedding utterances and the trial_label contains the
         # speakerID, test utterance and label.
-        retval = ("spk_enroll", "trial_label", "spk_labels", "task_tokens")
+        retval = ("spk_enroll", "trial_label", "spk_labels", "task_tokens", "precomp_feats")
 
         return retval
 
@@ -349,6 +361,9 @@ class SASVTask(AbsTask):
         encoder_output_size = encoder.output_size()
 
         pooling_class = pooling_choices.get_class(args.pooling)
+        # if pooling conf has feat_dim, add it to encoder_output_size
+        if "feat_dim" in args.pooling_conf:
+            encoder_output_size += args.pooling_conf["feat_dim"]
         pooling = pooling_class(input_size=encoder_output_size, **args.pooling_conf)
         pooling_output_size = pooling.output_size()
 
@@ -401,6 +416,7 @@ class SASVTask(AbsTask):
             losses=losses,
             loss_weights=loss_weights,
             loss_types=loss_types,
+            feat_fusion_stage=args.feat_fusion_stage,
             # **args.model_conf, # uncomment when model_conf exists
         )
 

@@ -72,12 +72,15 @@ spf_args=                       # Arguments for sasv model training.
 pretrained_model=               # Pretrained model to load for sasv training.
 ignore_init_mismatch=false      # Ignore weights corresponding to mismatched keys in the pretrained model.
 
+# use precomputed feats
+precomputed_feats=false        # Use precomputed features for training
+
 # Inference related
-inference_config=conf/decode.yaml       # Inference configuration
-inference_model=                        # Inference model weight file
-score_norm=false                        # Apply score normalization in inference.
-qmf_func=false                          # Apply quality measurement based calibration in inference.
-use_pseudomos=false                     # Use pseudomos for post-scoring
+inference_config=conf/decode.yaml           # Inference configuration
+inference_model=valid.min_a_dcf.best.pth    # Inference model weight file
+score_norm=false                            # Apply score normalization in inference.
+qmf_func=false                              # Apply quality measurement based calibration in inference.
+use_pseudomos=false                         # Use pseudomos for post-scoring
 
 # [Task dependent] Set the datadir name created by local/data.sh
 spk_train_set=      # Name of speaker pretraining set.
@@ -327,6 +330,10 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
                 cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spf2utt"
                 cp data/"${_train_set}/utt2spf" "${data_feats}/${_train_set}/utt2spf"
             fi
+            # if using precomputed features, copy feats.scp
+            if "${precomputed_feats}"; then
+                cp data/"${_train_set}/feats.scp" "${data_feats}/${_train_set}/feats.scp"
+            fi
             for x in music noise speech; do
                 cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
             done
@@ -348,28 +355,33 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
 
         fi
 
-        # Format Validation and Test Utterances
-        for dset in ${_dsets}; do
-            log "Formatting validation/eval set: ${dset}"
-            utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
+        # # Format Validation and Test Utterances
+        # for dset in ${_dsets}; do
+        #     log "Formatting validation/eval set: ${dset}"
+        #     utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
 
-            # copy extra files that are not covered by copy_data_dir.sh
-            cp data/${dset}/trial_label "${data_feats}/${dset}"
-            cp data/${dset}/spk2enroll "${data_feats}/${dset}"
+        #     # copy extra files that are not covered by copy_data_dir.sh
+        #     cp data/${dset}/trial_label "${data_feats}/${dset}"
+        #     cp data/${dset}/spk2enroll "${data_feats}/${dset}"
 
-            # shellcheck disable=SC2086
-            scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
-                --audio-format "${audio_format}" --fs "${fs}" \
-                --multi-columns-input "${multi_columns_input_wav_scp}" \
-                --multi-columns-output "${multi_columns_output_wav_scp}" \
-                "data/${dset}/wav.scp" "${data_feats}/${dset}"
+        #     # if using precomputed features, copy feats.scp
+        #     if "${precomputed_feats}"; then
+        #         cp data/${dset}/feats.scp "${data_feats}/${dset}/feats.scp"
+        #     fi
 
-            echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
-            echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
-            for f in ${utt_extra_files}; do
-                [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
-            done
-        done
+        #     # shellcheck disable=SC2086
+        #     scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
+        #         --audio-format "${audio_format}" --fs "${fs}" \
+        #         --multi-columns-input "${multi_columns_input_wav_scp}" \
+        #         --multi-columns-output "${multi_columns_output_wav_scp}" \
+        #         "data/${dset}/wav.scp" "${data_feats}/${dset}"
+
+        #     echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
+        #     echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
+        #     for f in ${utt_extra_files}; do
+        #         [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
+        #     done
+        # done
 
     elif [ "${feats_type}" = raw_copy ]; then
         if [ "${skip_train}" = false ]; then 
@@ -380,6 +392,11 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
             if [ "${mode}" = sasv ]; then
                 cp data/"${_train_set}/spf2utt" "${data_feats}/${_train_set}/spf2utt"
             fi
+            # if using precomputed features, copy feats.scp
+            if "${precomputed_feats}"; then
+                cp data/"${_train_set}/feats.scp" "${data_feats}/${_train_set}/feats.scp"
+            fi
+
             for x in music noise speech; do
                 cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
             done
@@ -398,6 +415,11 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
             utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
             cp data/${dset}/trial_label "${data_feats}/${dset}"
             cp data/${dset}/spk2enroll "${data_feats}/${dset}"
+
+            # if using precomputed features, copy feats.scp
+            if "${precomputed_feats}"; then
+                cp data/${dset}/feats.scp "${data_feats}/${dset}/feats.scp"
+            fi
 
             echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
             echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
@@ -580,6 +602,24 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
     cp "${_sasv_valid_dir}/spk2enroll" "${sasv_exp}/trial_info"
     cp "${_sasv_valid_dir}/trial_label" "${sasv_exp}/trial_info"
 
+    # if using precomputed features, add them to the training and validation data
+    if "${precomputed_feats}"; then
+        # check that ${_sasv_train_dir}/feats.scp exists
+        if [ ! -f "${_sasv_train_dir}/feats.scp" ]; then
+            log "Error: ${_sasv_train_dir}/feats.scp does not exist. Please set precomputed_feats to false or provide the correct path to the precomputed features."
+            exit 1
+        else
+            spf_args+=" --train_data_path_and_name_and_type ${_sasv_train_dir}/feats.scp,precomp_feats,npy"
+        fi
+        # check that ${_sasv_valid_dir}/feats.scp exists
+        if [ ! -f "${_sasv_valid_dir}/feats.scp" ]; then
+            log "Not validating with precomputed features."
+        else
+            spf_args+=" --valid_data_path_and_name_and_type ${_sasv_valid_dir}/feats.scp,precomp_feats,npy"
+        fi
+    fi
+    echo "spf_args: ${spf_args}"
+
     ${python} -m espnet2.bin.launch \
         --cmd "${cuda_cmd} --name ${jobname}" \
         --log ${sasv_exp}/train.log \
@@ -605,8 +645,7 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
             --fold_length ${fold_length} \
             --valid_shape_file ${sasv_stats_dir}/valid/speech_shape \
             --output_dir "${sasv_exp}" \
-            ${_opts}
-            # ${sasv_args}
+            ${_opts} ${spf_args}
 fi
 
 
@@ -620,6 +659,16 @@ if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
         jobname="$(basename ${infer_exp})"
     else
         jobname="${infer_exp}/sasv_embed_extraction.log"
+    fi
+
+    if "${precomputed_feats}"; then
+        # check that ${_inference_dir}/feats.scp exists
+        if [ ! -f "${_inference_dir}/feats.scp" ]; then
+            log "Error: ${_inference_dir}/feats.scp does not exist. Please set precomputed_feats to false or provide the correct path to the precomputed features."
+            exit 1
+        else
+            spf_args+=" --data_path_and_name_and_type ${_inference_dir}/feats.scp,precomp_feats,npy"
+        fi
     fi
 
     # copy spk_enroll and trial_label to spk_exp under subdir trial_info
@@ -644,7 +693,7 @@ if [ ${stage} -le 7 ] && [ ${stop_stage} -ge 7 ]; then
             --config ${inference_config} \
             --spk_train_config "${sasv_exp}/config.yaml" \
             --spk_model_file "${sasv_exp}"/${inference_model} \
-            # ${sasv_args}
+            ${spf_args}
 fi
 
 if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then

@@ -168,4 +168,32 @@ if [ ${stage} -le 5 ] && [ ${stop_stage} -ge 5 ]; then
 fi
 
 
+if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
+    log "Stage 6: Extract UTMOS features"
+
+    for dataset in asvspoof5_train asvspoof5_dev asvspoof5_eval; do
+        # make features
+        if [ ! -d "${trg_dir}/${dataset}/feats" ]; then
+            log "Making features for ${dataset}"
+            mkdir -p "${trg_dir}/${dataset}/feats"
+            python3 local/utmos_feats.py \
+                "${trg_dir}/${dataset}/wav.scp" \
+                --outdir "${trg_dir}/${dataset}/feats" \
+                --batchsize 2
+        else
+            log "${trg_dir}/${dataset}/feats exists. Skip making features for ${dataset}"
+        fi
+        # make feats.scp
+        if [ ! -f "${trg_dir}/${dataset}/feats.scp" ]; then
+            log "Making feats.scp for ${dataset}"
+            python3 local/make_feats_scp.py --input_dir "${trg_dir}/${dataset}/feats" --output_dir "${trg_dir}/${dataset}"
+            sort "${trg_dir}/${dataset}/feats.scp" -o "${trg_dir}/${dataset}/feats.scp"
+        else
+            log "${trg_dir}/${dataset}/feats.scp exists. Skip making feats.scp for ${dataset}"
+        fi
+    done
+
+    log "Stage 6, DONE."
+fi
+
 log "Successfully finished. [elapsed=${SECONDS}s]"

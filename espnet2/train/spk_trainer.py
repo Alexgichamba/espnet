@@ -134,13 +134,25 @@ class SpkTrainer(Trainer):
                 ).unsqueeze(1)
             else:
                 task_tokens = None
+            
+            # if precomp_feats in batch
+            if "precomp_feats" in batch:
+                precomp_feats = to_device(batch["precomp_feats"], device)
+                spk_embds = model(
+                    speech=speech_batch,
+                    precomp_feats=precomp_feats,
+                    spk_labels=None,
+                    extract_embd=True,
+                    task_tokens=task_tokens,
+                )
 
-            spk_embds = model(
-                speech=speech_batch,
-                spk_labels=None,
-                extract_embd=True,
-                task_tokens=task_tokens,
-            )
+            else:
+                spk_embds = model(
+                    speech=speech_batch,
+                    spk_labels=None,
+                    extract_embd=True,
+                    task_tokens=task_tokens,
+                )
 
             spk_embds = F.normalize(spk_embds, p=2, dim=1)
             spk_embds = spk_embds.view(org_shape[0], org_shape[1], -1)
@@ -414,12 +426,24 @@ class SpkTrainer(Trainer):
             else:
                 task_tokens = None
 
-            spk_embds = model(
-                speech=speech_batch,
-                spk_labels=None,
-                extract_embd=True,
-                task_tokens=task_tokens,
-            )
+            # if precomp_feats in batch
+            if "precomp_feats" in batch:
+                precomp_feats = to_device(batch["precomp_feats"], device)
+                spk_embds = model(
+                    speech=speech_batch,
+                    precomp_feats=precomp_feats,
+                    spk_labels=None,
+                    extract_embd=True,
+                    task_tokens=task_tokens,
+                )
+
+            else:
+                spk_embds = model(
+                    speech=speech_batch,
+                    spk_labels=None,
+                    extract_embd=True,
+                    task_tokens=task_tokens,
+                )
 
             spk_embds = F.normalize(spk_embds, p=2, dim=1)
             spk_embds = spk_embds.view(org_shape[0], org_shape[1], -1)

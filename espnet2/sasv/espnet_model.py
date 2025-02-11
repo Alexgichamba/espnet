@@ -6,6 +6,8 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from typeguard import typechecked
 
+import logging
+
 from espnet2.asr.encoder.abs_encoder import AbsEncoder
 from espnet2.asr.frontend.abs_frontend import AbsFrontend
 from espnet2.asr.specaug.abs_specaug import AbsSpecAug
@@ -50,6 +52,8 @@ class ESPnetSASVModel(AbsESPnetModel):
         losses: Optional[List[AbsLoss]],
         loss_weights: Optional[List[float]] = None,
         loss_types: Optional[List[str]] = None,
+        feat_fusion_stage: Optional[str] = None,
+
     ):
 
         super().__init__()
@@ -63,11 +67,13 @@ class ESPnetSASVModel(AbsESPnetModel):
         self.losses = losses
         self.loss_weights = loss_weights
         self.loss_types = loss_types
+        self.feat_fusion_stage = feat_fusion_stage
 
     @typechecked
     def forward(
         self,
         speech: torch.Tensor,
+        precomp_feats: Optional[torch.Tensor] = None,
         spk_labels: Optional[torch.Tensor] = None,
         spf_labels: Optional[torch.Tensor] = None,
         task_tokens: Optional[torch.Tensor] = None,
@@ -83,6 +89,7 @@ class ESPnetSASVModel(AbsESPnetModel):
         Args:
             speech: (Batch, samples)
             speech_lengths: (Batch,)
+            precomp_feats: (Batch, 1, dim)
             extract_embd: a flag which doesn't go through the classification
                 head when set True
             spk_labels: (Batch, )
@@ -108,13 +115,33 @@ class ESPnetSASVModel(AbsESPnetModel):
         # Will do nothing for raw waveform-based models (e.g., RawNets)
         feats, _ = self.extract_feats(speech, None)
 
-        frame_level_feats = self.encode_frame(feats)
+        used_precomp_feats = 0
+        if self.feat_fusion_stage == "encoder":
+            if precomp_feats is not None:
+                used_precomp_feats += 1
+                frame_level_feats = self.encode_frame(feats, precomp_feats)
+        else:
+            frame_level_feats = self.encode_frame(feats)
 
         # 2. aggregation into utterance-level
-        utt_level_feat = self.pooling(frame_level_feats, task_tokens)
+        if self.feat_fusion_stage == "pooling":
+            if precomp_feats is not None:
+                used_precomp_feats += 1
+                utt_level_feat = self.pooling(frame_level_feats, task_tokens, precomp_feats)
+        else:
+            utt_level_feat = self.pooling(frame_level_feats, task_tokens)
 
         # 3. (optionally) go through further projection(s)
-        spk_embd = self.project_spk_embd(utt_level_feat)
+        if self.feat_fusion_stage == "projector":
+            if precomp_feats is not None:
+                used_precomp_feats += 1 
+                spk_embd = self.project_spk_embd(utt_level_feat, precomp_feats)
+        else:
+            spk_embd = self.project_spk_embd(utt_level_feat)
+
+        if used_precomp_feats < 1 and precomp_feats is not None:
+            logging.warning("No precomputed features were used in the forward pass, despite being provided. "
+                            "Please check the configuration and set the correct 'feat_fusion_stage'")
 
         if extract_embd:
             return spk_embd
@@ -192,13 +219,18 @@ class ESPnetSASVModel(AbsESPnetModel):
 
         return frame_level_feats
 
-    def aggregate(self, frame_level_feats: torch.Tensor) -> torch.Tensor:
-        utt_level_feat = self.aggregator(frame_level_feats)
+    def aggregate(self, frame_level_feats: torch.Tensor, precomputed_feats: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if precomputed_feats is not None:
+            utt_level_feat = self.aggregator(frame_level_feats, precomputed_feats)
+        else:
+            utt_level_feat = self.aggregator(frame_level_feats)
 
         return utt_level_feat
 
-    def project_spk_embd(self, utt_level_feat: torch.Tensor) -> torch.Tensor:
-        if self.projector is not None:
+    def project_spk_embd(self, utt_level_feat: torch.Tensor, precomputed_feats: Optional[torch.Tensor] = None) -> torch.Tensor:
+        if self.projector is not None and precomputed_feats is not None:
+            spk_embd = self.projector(utt_level_feat, precomputed_feats)
+        elif self.projector is not None and precomputed_feats is None:
             spk_embd = self.projector(utt_level_feat)
         else:
             spk_embd = utt_level_feat
