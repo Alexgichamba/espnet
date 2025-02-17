@@ -76,6 +76,7 @@ class ESPnetSASVModel(AbsESPnetModel):
         precomp_feats: Optional[torch.Tensor] = None,
         spk_labels: Optional[torch.Tensor] = None,
         spf_labels: Optional[torch.Tensor] = None,
+        pmos_labels: Optional[torch.Tensor] = None,
         task_tokens: Optional[torch.Tensor] = None,
         extract_embd: bool = False,
         **kwargs,
@@ -97,6 +98,8 @@ class ESPnetSASVModel(AbsESPnetModel):
             spf_labels: (Batch, )
             one-hot spoofing labels used in the train phase
             task_tokens: (Batch, )
+            pmos_labels: (Batch, )
+            pmos labels used in the train phase
             task tokens used in case of token-based trainings
         """
         if spk_labels is not None:
@@ -156,11 +159,11 @@ class ESPnetSASVModel(AbsESPnetModel):
             elif loss_types[i] == "spf":
                 assert spf_labels is not None, "spf_labels is None, cannot compute loss"
                 labels.append(spf_labels)
-            # elif loss_types[i] == "pmos":
-            #     assert (
-            #         pmos_labels is not None
-            #     ), "pmos_labels is None, cannot compute loss"
-            #     labels.append(pmos_labels)
+            elif loss_types[i] == "pmos":
+                assert (
+                    pmos_labels is not None
+                ), "pmos_labels is None, cannot compute loss"
+                labels.append(pmos_labels)
             else:
                 raise NotImplementedError(f"Loss name {loss_types[i]} is not supported")
 

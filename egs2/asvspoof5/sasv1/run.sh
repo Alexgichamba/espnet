@@ -7,15 +7,16 @@ set -o pipefail
 mode=sasv
 audio_format=flac
 skip_spk_pretrain=true
-pretrained_model=10epoch.pth
+pretrained_model=20epoch.pth
 ignore_init_mismatch=true
 
 spk_config=conf/pretrain_SKATDNN_mel.yaml
-sasv_config=conf/bs64_train_SKATDNN_mel.yaml
+sasv_config=conf/tuning_pmos_mtl_RawNet3.yaml
 inference_config=conf/decode.yaml
 
-inference_model=../../9epoch.pth
-use_pseudomos=true
+use_pseudomos_rule=false
+precomputed_feats=false
+use_pmos_labels=true
 
 spk_train_set=voxceleb2_dev
 spk_valid_set=voxceleb1_test
@@ -23,7 +24,7 @@ spk_valid_set=voxceleb1_test
 sasv_train_set=asvspoof5_train
 sasv_valid_set=asvspoof5_dev
 
-test_sets=asvspoof5_dev
+test_sets=asvspoof5_test
 
 eval_valid_set=true
 skip_train=false
@@ -48,13 +49,13 @@ speed_perturb_factors=
     --ngpu ${ngpu} \
     --nj ${nj} \
     --speed_perturb_factors "${speed_perturb_factors}" \
-    --inference_model ${inference_model} \
     --mode ${mode} \
     --audio_format ${audio_format} \
     --skip_spk_pretrain ${skip_spk_pretrain} \
     --pretrained_model ${pretrained_model} \
     --ignore_init_mismatch ${ignore_init_mismatch} \
     --inference_config ${inference_config} \
-    --inference_model ${inference_model} \
-    --use_pseudomos ${use_pseudomos} \
+    --use_pseudomos_rule ${use_pseudomos_rule} \
+    --precomputed_feats ${precomputed_feats} \
+    --use_pmos_labels ${use_pmos_labels} \
     "$@"

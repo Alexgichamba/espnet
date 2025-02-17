@@ -75,12 +75,15 @@ ignore_init_mismatch=false      # Ignore weights corresponding to mismatched key
 # use precomputed feats
 precomputed_feats=false        # Use precomputed features for training
 
+# use pmos labels for multi-task sasv training
+use_pmos_labels=false
+
 # Inference related
 inference_config=conf/decode.yaml           # Inference configuration
 inference_model=valid.min_a_dcf.best.pth    # Inference model weight file
 score_norm=false                            # Apply score normalization in inference.
 qmf_func=false                              # Apply quality measurement based calibration in inference.
-use_pseudomos=false                         # Use pseudomos for post-scoring
+use_pseudomos_rule=false                         # Use pseudomos for post-scoring
 
 # [Task dependent] Set the datadir name created by local/data.sh
 spk_train_set=      # Name of speaker pretraining set.
@@ -334,6 +337,9 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
             if "${precomputed_feats}"; then
                 cp data/"${_train_set}/feats.scp" "${data_feats}/${_train_set}/feats.scp"
             fi
+            if "${use_pmos_labels}"; then
+                cp data/"${_train_set}/utt2pmos" "${data_feats}/${_train_set}/utt2pmos"
+            fi
             for x in music noise speech; do
                 cp data/musan_${x}.scp ${data_feats}/musan_${x}.scp
             done
@@ -355,33 +361,33 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
 
         fi
 
-        # # Format Validation and Test Utterances
-        # for dset in ${_dsets}; do
-        #     log "Formatting validation/eval set: ${dset}"
-        #     utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
+        # Format Validation and Test Utterances
+        for dset in ${_dsets}; do
+            log "Formatting validation/eval set: ${dset}"
+            utils/copy_data_dir.sh --validate_opts --non-print data/"${dset}" "${data_feats}/${dset}"
 
-        #     # copy extra files that are not covered by copy_data_dir.sh
-        #     cp data/${dset}/trial_label "${data_feats}/${dset}"
-        #     cp data/${dset}/spk2enroll "${data_feats}/${dset}"
+            # copy extra files that are not covered by copy_data_dir.sh
+            cp data/${dset}/trial_label "${data_feats}/${dset}"
+            cp data/${dset}/spk2enroll "${data_feats}/${dset}"
 
-        #     # if using precomputed features, copy feats.scp
-        #     if "${precomputed_feats}"; then
-        #         cp data/${dset}/feats.scp "${data_feats}/${dset}/feats.scp"
-        #     fi
+            # if using precomputed features, copy feats.scp
+            if "${precomputed_feats}"; then
+                cp data/${dset}/feats.scp "${data_feats}/${dset}/feats.scp"
+            fi
 
-        #     # shellcheck disable=SC2086
-        #     scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
-        #         --audio-format "${audio_format}" --fs "${fs}" \
-        #         --multi-columns-input "${multi_columns_input_wav_scp}" \
-        #         --multi-columns-output "${multi_columns_output_wav_scp}" \
-        #         "data/${dset}/wav.scp" "${data_feats}/${dset}"
+            # shellcheck disable=SC2086
+            scripts/audio/format_wav_scp.sh --nj "${nj}" --cmd "${train_cmd}" \
+                --audio-format "${audio_format}" --fs "${fs}" \
+                --multi-columns-input "${multi_columns_input_wav_scp}" \
+                --multi-columns-output "${multi_columns_output_wav_scp}" \
+                "data/${dset}/wav.scp" "${data_feats}/${dset}"
 
-        #     echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
-        #     echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
-        #     for f in ${utt_extra_files}; do
-        #         [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
-        #     done
-        # done
+            echo "${feats_type}" > "${data_feats}/${dset}/feats_type"
+            echo "multi_${audio_format}" > "${data_feats}/${dset}/audio_format"
+            for f in ${utt_extra_files}; do
+                [ -f data/${dset}/${f} ] && cp data/${dset}/${f} ${data_feats}/${dset}/${f}
+            done
+        done
 
     elif [ "${feats_type}" = raw_copy ]; then
         if [ "${skip_train}" = false ]; then 
@@ -618,8 +624,11 @@ if [ ${stage} -le 6 ] && [ ${stop_stage} -ge 6 ]; then
             spf_args+=" --valid_data_path_and_name_and_type ${_sasv_valid_dir}/feats.scp,precomp_feats,npy"
         fi
     fi
-    echo "spf_args: ${spf_args}"
 
+    if "${use_pmos_labels}"; then
+        spf_args+=" --train_data_path_and_name_and_type ${_sasv_train_dir}/utt2pmos,pmos_labels,text"
+    fi
+    
     ${python} -m espnet2.bin.launch \
         --cmd "${cuda_cmd} --name ${jobname}" \
         --log ${sasv_exp}/train.log \
@@ -717,7 +726,7 @@ if [ ${stage} -le 8 ] && [ ${stop_stage} -ge 8 ]; then
                                                                         --device ${_device}
     scorefile_cur=${infer_exp}/${test_sets}_raw_trial_scores
 
-    if "${use_pseudomos}"; then
+    if "${use_pseudomos_rule}"; then
         log "Stage 8-b: apply MOS rule for rescoring accepts."
         if [ ! -d "${infer_exp}/pmos" ]; then
             mkdir -p "${infer_exp}/pmos"
@@ -753,7 +762,7 @@ if [ ${stage} -le 9 ] && [ ${stop_stage} -ge 9 ]; then
     infer_exp="${sasv_exp}/inference"
     _inference_dir=${data_feats}/${test_sets}
 
-    if "${use_pseudomos}"; then
+    if "${use_pseudomos_rule}"; then
         score_dir=${infer_exp}/${test_sets}_processed_scores
     else
         score_dir=${infer_exp}/${test_sets}_raw_trial_scores

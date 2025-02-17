@@ -29,6 +29,7 @@ from espnet2.sasv.loss.aamsoftmax import AAMSoftmax
 from espnet2.sasv.loss.aamsoftmax_subcenter_intertopk import (
     ArcMarginProduct_intertopk_subcenter,
 )
+from espnet2.sasv.loss.mse_loss import MSE
 from espnet2.spk.pooling.abs_pooling import AbsPooling
 from espnet2.spk.pooling.chn_attn_stat_pooling import ChnAttnStatPooling
 from espnet2.spk.pooling.mean_pooling import MeanPooling
@@ -141,6 +142,7 @@ loss_choices = ClassChoices(
     classes=dict(
         aamsoftmax=AAMSoftmax,
         aamsoftmax_sc_topk=ArcMarginProduct_intertopk_subcenter,
+        mse=MSE,
     ),
     default="aamsoftmax",
 )
@@ -285,19 +287,21 @@ class SASVTask(AbsTask):
     ) -> Optional[Callable[[str, Dict[str, np.array]], Dict[str, np.ndarray]]]:
         if args.use_preprocessor:
             if train:
+                # Build preprocessor kwargs dictionary
+                preprocessor_kwargs = {
+                    "spk2utt": args.spk2utt,
+                    "train": train,
+                    **args.preprocessor_conf  # Unpack any additional preprocessor configs
+                }
+
                 if args.spf2utt is not None:
-                    retval = preprocessor_choices.get_class(args.preprocessor)(
-                        spk2utt=args.spk2utt,
-                        spf2utt=args.spf2utt,
-                        train=train,
-                        **args.preprocessor_conf,
-                    )
-                else:
-                    retval = preprocessor_choices.get_class(args.preprocessor)(
-                        spk2utt=args.spk2utt,
-                        train=train,
-                        **args.preprocessor_conf,
-                    )
+                    preprocessor_kwargs["spf2utt"] = args.spf2utt
+                # Add pmos_labels to preprocessor kwargs if it exists
+                if "pmos_labels" in args:
+                    preprocessor_kwargs["pmos_labels"] = args.pmos_labels
+
+                # Create preprocessor with unpacked kwargs
+                retval = preprocessor_choices.get_class(args.preprocessor)(**preprocessor_kwargs)
             else:
                 retval = preprocessor_choices.get_class(args.preprocessor)(
                     train=train,
@@ -326,7 +330,7 @@ class SASVTask(AbsTask):
         # When calculating EER, we need trials where the spk_enroll contains
         # the speaker embedding utterances and the trial_label contains the
         # speakerID, test utterance and label.
-        retval = ("spk_enroll", "trial_label", "spk_labels", "task_tokens", "precomp_feats")
+        retval = ("spk_enroll", "trial_label", "spk_labels", "task_tokens", "precomp_feats", "pmos_labels")
 
         return retval
 
