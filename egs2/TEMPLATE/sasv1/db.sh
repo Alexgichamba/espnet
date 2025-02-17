@@ -3,5 +3,6 @@
 
 ASVSPOOF5=
 VOXCELEB=
+SPOOFCELEB=
 MUSAN=downloads
 RIR=downloads
