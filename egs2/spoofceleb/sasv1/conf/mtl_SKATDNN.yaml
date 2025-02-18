@@ -33,7 +33,7 @@ preprocessor: spk
 preprocessor_conf:
   target_duration: 3.0  # seconds
   sample_rate: 16000
-  num_eval: 5
+  num_eval: 1
   noise_apply_prob: 0.5
   noise_info:
   - [1.0, 'dump/raw/musan_noise.scp', [1, 1], [0, 15]]
