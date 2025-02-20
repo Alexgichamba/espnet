@@ -15,6 +15,7 @@ import fnmatch
 import logging
 import os
 from typing import List
+import gc
 
 import librosa
 import numpy as np
@@ -441,6 +442,10 @@ def calculate(
         with torch.no_grad():
             frame_feats = predictor(gen_xs, fs, return_feat=True)  # [B, Frames, 2048]
             frame_feats = frame_feats.cpu().numpy()
+            # Free memory
+            del gen_xs
+            gc.collect()
+            torch.cuda.empty_cache()
 
             # Save features using uttids directly
             for uttid, feat in zip(uttids, frame_feats):
