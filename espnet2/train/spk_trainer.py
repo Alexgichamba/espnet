@@ -282,7 +282,7 @@ class SpkTrainer(Trainer):
 
         trg_mean = float(np.mean(scores_trg))
         trg_std = float(np.std(scores_trg))
-        nontrg_mean = float(np.std(scores_nontrg))
+        nontrg_mean = float(np.mean(scores_nontrg))
         nontrg_std = float(np.std(scores_nontrg))
         spf_mean = float(np.mean(scores_spf))
         spf_std = float(np.std(scores_spf))
